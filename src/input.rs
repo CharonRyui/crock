@@ -1,0 +1,165 @@
+use std::num::ParseFloatError;
+
+use crossterm::event::Event;
+use ratatui::{
+    Frame,
+    layout::{Constraint, Direction, Layout, Position, Rect},
+    style::{Color, Style},
+    text::Span,
+    widgets::{Block, Borders, Clear, Paragraph},
+};
+use thiserror::Error;
+use tui_input::{Input, backend::crossterm::EventHandler};
+
+use crate::clock::Task;
+
+#[derive(Debug, Error)]
+pub enum TaskInputError {
+    #[error("empty content")]
+    EmptyContent,
+    #[error("empty time")]
+    EmptyTime,
+    #[error("invalid time")]
+    InvalidTime(#[from] ParseFloatError),
+}
+
+type Result<T> = std::result::Result<T, TaskInputError>;
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub enum TaskInputFocus {
+    #[default]
+    Content,
+    Time,
+}
+
+#[derive(Debug, Default)]
+pub struct TaskInput {
+    content_input: Input,
+    time_input: Input,
+    focus: TaskInputFocus,
+}
+
+impl TaskInput {
+    pub fn get_task(&self) -> Result<Task> {
+        let content = self.content_input.value();
+        if content.is_empty() {
+            return Err(TaskInputError::EmptyContent);
+        }
+
+        let time = self.time_input.value();
+        if time.is_empty() {
+            return Err(TaskInputError::EmptyTime);
+        }
+
+        let content = content.to_string();
+        // FIXME: do not use unwrap and allow more time format
+        let seconds = time.parse()?;
+
+        Ok(Task { content, seconds })
+    }
+}
+
+impl TaskInput {
+    pub fn render(&self, frame: &mut Frame, area: Rect) {
+        frame.render_widget(Clear, area);
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(40),
+                Constraint::Percentage(40),
+                Constraint::Percentage(20),
+            ])
+            .margin(1)
+            .split(area);
+
+        let content_style = if self.focus == TaskInputFocus::Content {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        let content_block = Block::default()
+            .borders(Borders::ALL)
+            .title(" 1. Task Description ")
+            .border_style(content_style);
+
+        frame.render_widget(
+            Paragraph::new(self.content_input.value()).block(content_block),
+            layout[0],
+        );
+
+        let time_style = if self.focus == TaskInputFocus::Time {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        let time_block = Block::default()
+            .borders(Borders::ALL)
+            .title(" 2. Seconds ")
+            .border_style(time_style);
+
+        frame.render_widget(
+            Paragraph::new(self.time_input.value()).block(time_block),
+            layout[1],
+        );
+
+        // 5. Render Help Hint
+        let help_text = Span::styled(
+            " <Tab> Switch Focus | <Enter> Submit | <Esc> Cancel ",
+            Style::default().fg(Color::Indexed(245)).italic(),
+        );
+        frame.render_widget(Paragraph::new(help_text), layout[2]);
+
+        let active_chunk = if self.focus == TaskInputFocus::Content {
+            layout[0]
+        } else {
+            layout[1]
+        };
+        let active_input = if self.focus == TaskInputFocus::Content {
+            &self.content_input
+        } else {
+            &self.time_input
+        };
+
+        frame.set_cursor_position(Position::new(
+            active_chunk.x + active_input.visual_cursor() as u16 + 1,
+            active_chunk.y + 1,
+        ));
+    }
+
+    pub fn switch_focus(&mut self) {
+        self.focus = match self.focus {
+            TaskInputFocus::Content => TaskInputFocus::Time,
+            TaskInputFocus::Time => TaskInputFocus::Content,
+        }
+    }
+
+    pub fn handle_event(&mut self, evt: Event) {
+        match self.focus {
+            TaskInputFocus::Content => self.content_input.handle_event(&evt),
+            TaskInputFocus::Time => self.time_input.handle_event(&evt),
+        };
+    }
+}
+
+pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}

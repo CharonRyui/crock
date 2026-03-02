@@ -1,12 +1,21 @@
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
 use futures::{FutureExt, StreamExt};
-use ratatui::DefaultTerminal;
+use ratatui::{DefaultTerminal, Frame};
 use thiserror::Error;
 use tokio::{select, sync::mpsc};
 
-use crate::clock::Clock;
+use crate::{
+    clock::Clock,
+    input::{TaskInput, centered_rect},
+};
 
 type Result<T> = std::result::Result<T, AppError>;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum InputMode {
+    Normal,
+    AddTask,
+}
 
 #[derive(Debug)]
 pub enum AppAction {
@@ -16,7 +25,12 @@ pub enum AppAction {
 #[derive(Debug)]
 pub struct App {
     is_running: bool,
+
     clock: Clock,
+
+    input_mode: InputMode,
+    task_input: TaskInput,
+
     action_rx: mpsc::Receiver<AppAction>,
 }
 
@@ -28,6 +42,8 @@ impl Default for App {
             is_running: true,
             clock,
             action_rx,
+            input_mode: InputMode::Normal,
+            task_input: TaskInput::default(),
         }
     }
 }
@@ -42,8 +58,7 @@ impl App {
             let event = event_stream.next().fuse();
             terminal
                 .draw(|frame| {
-                    self.clock
-                        .render_with_current_seconds_left(frame, frame.area(), 0.0)
+                    self.draw(frame);
                 })
                 .map_err(|_| AppError::DrawFail)?;
             select! {
@@ -58,24 +73,34 @@ impl App {
         Ok(())
     }
 
-    fn handle_event(&mut self, e: Event) -> Result<()> {
-        match e {
+    fn handle_event(&mut self, evt: Event) -> Result<()> {
+        match evt {
             Event::FocusGained => todo!(),
             Event::FocusLost => todo!(),
-            Event::Key(key_event) => self.handle_key_event(key_event),
+            Event::Key(key_evt) => match self.input_mode {
+                InputMode::Normal => match key_evt.code {
+                    KeyCode::Char('q') => self.is_running = false,
+                    KeyCode::Char('r') => self.run_clock(),
+                    KeyCode::Char('a') => self.input_mode = InputMode::AddTask,
+                    _ => {}
+                },
+                InputMode::AddTask => match key_evt.code {
+                    KeyCode::Enter => {
+                        if let Ok(task) = self.task_input.get_task() {
+                            self.clock.tasks.push(task);
+                            self.input_mode = InputMode::Normal;
+                        }
+                    }
+                    KeyCode::Tab => self.task_input.switch_focus(),
+                    KeyCode::Esc => self.input_mode = InputMode::Normal,
+                    _ => self.task_input.handle_event(evt),
+                },
+            },
             Event::Mouse(mouse_event) => todo!(),
             Event::Paste(_) => todo!(),
             Event::Resize(_, _) => todo!(),
         }
         Ok(())
-    }
-
-    fn handle_key_event(&mut self, e: KeyEvent) {
-        match e.code {
-            KeyCode::Char('q') => self.is_running = false,
-            KeyCode::Char('r') => self.run_clock(),
-            _ => {}
-        }
     }
 
     fn handle_action(&mut self, action: AppAction, terminal: &mut DefaultTerminal) -> Result<()> {
@@ -88,6 +113,16 @@ impl App {
                 .map_err(|_| AppError::DrawFail)?,
         };
         Ok(())
+    }
+
+    fn draw(&mut self, frame: &mut Frame) {
+        self.clock
+            .render_with_current_seconds_left(frame, frame.area(), 0.0);
+
+        if self.input_mode == InputMode::AddTask {
+            self.task_input
+                .render(frame, centered_rect(60, 20, frame.area()));
+        }
     }
 
     fn run_clock(&self) {

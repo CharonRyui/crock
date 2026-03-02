@@ -27,7 +27,7 @@ pub struct Clock {
 
 #[derive(Debug)]
 pub struct Task {
-    pub name: String,
+    pub content: String,
     pub seconds: f64,
 }
 
@@ -116,7 +116,7 @@ impl Clock {
                 } else {
                     Style::default().fg(Color::Gray)
                 };
-                let content = format!(" [{}] {} ({}s)", i + 1, task.name, task.seconds);
+                let content = format!(" [{}] {} ({}s)", i + 1, task.content, task.seconds);
                 ListItem::new(content).style(style)
             })
             .collect();

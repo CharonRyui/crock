@@ -4,6 +4,7 @@ use crate::app::{App, AppError};
 
 pub mod app;
 pub mod clock;
+pub mod input;
 
 pub fn application(terminal: &mut DefaultTerminal) -> Result<(), AppError> {
     let mut app = App::default();
