@@ -12,12 +12,7 @@ pub struct Timer {
 }
 
 impl Timer {
-    pub async fn start<T: Fn(i64) + Send + 'static, F: FnOnce() + Send + 'static>(
-        &self,
-        seconds: i64,
-        on_tick: T,
-        on_finish: F,
-    ) -> Result<()> {
+    pub async fn start<F: Fn(i64) + Send + 'static>(&self, seconds: i64, on_tick: F) -> Result<()> {
         {
             let mut left_seconds = self.left_seconds.lock().await;
             if *left_seconds > 0 {
@@ -28,7 +23,6 @@ impl Timer {
         loop {
             let mut left_seconds = self.left_seconds.lock().await;
             if *left_seconds <= 0 {
-                on_finish();
                 break;
             }
             *left_seconds -= 1;
