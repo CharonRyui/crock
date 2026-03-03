@@ -42,7 +42,7 @@ fn help_lines() -> &'static Vec<Line<'static>> {
             help_line!("?", "toggle this pane"),
             help_line!("a", "add task"),
             help_line!("c", "continue next task"),
-            help_line!("r", "run from the first task"),
+            help_line!("r", "run from focused task (or the first)"),
             help_line!("p", "pause/run current task"),
             help_line!("t", "stop current task (if is running)"),
             help_line!("j", "focus next task"),

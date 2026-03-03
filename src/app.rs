@@ -33,10 +33,10 @@ pub enum AppAction {
     UpdateTaskList {
         current_task_idx: Option<usize>,
         tasks: Vec<Task>,
+        focused_task_idx: Option<usize>,
     },
     ClockTimerFinish,
     ClockTimerPauseToggle(bool),
-    FocusTask(Option<usize>),
 }
 
 #[derive(Debug)]
@@ -105,9 +105,8 @@ impl App {
                     KeyCode::Char('q') => self.is_running = false,
                     KeyCode::Char('r') => {
                         let clock = self.clock.clone();
-                        clock.reset().await?;
                         tokio::spawn(async move {
-                            let _ = clock.run_next_task().await;
+                            let _ = clock.run_focused().await;
                         });
                     }
                     KeyCode::Char('c') => {
@@ -156,13 +155,14 @@ impl App {
             AppAction::UpdateTaskList {
                 current_task_idx,
                 tasks,
+                focused_task_idx,
             } => {
                 self.clock_state.current_running_task = current_task_idx;
                 self.clock_state.tasks = tasks;
+                self.clock_state.focused_task = focused_task_idx;
             }
             AppAction::ClockTimerFinish => self.clock_state.seconds_left = None,
             AppAction::ClockTimerPauseToggle(is_paused) => self.clock_state.is_paused = is_paused,
-            AppAction::FocusTask(idx) => self.clock_state.focused_task = idx,
         };
     }
 
