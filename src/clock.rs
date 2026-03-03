@@ -19,11 +19,11 @@ pub mod timer;
 
 type Result<T> = std::result::Result<T, error::ClockError>;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ClockState {
-    tasks: Vec<Task>,
-    current_task_id: Option<usize>,
-    left_seconds: f64,
+    pub tasks: Vec<Task>,
+    pub current_task_id: Option<usize>,
+    pub seconds_left: f64,
 }
 
 #[derive(Debug)]
@@ -110,12 +110,7 @@ impl Clock {
         tasks.push(task);
     }
 
-    pub fn render_with_current_seconds_left(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        state: &ClockState,
-    ) {
+    pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &ClockState) {
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(3), Constraint::Min(0)])
@@ -124,12 +119,12 @@ impl Clock {
         if let Some(task_id) = state.current_task_id {
             let task = &state.tasks[task_id];
             let ration = if task.seconds > 0.0 {
-                (state.left_seconds / task.seconds).clamp(0.0, 1.0)
+                (state.seconds_left / task.seconds).clamp(0.0, 1.0)
             } else {
                 1.0
             };
 
-            let label = format!("{}s remaining", state.left_seconds);
+            let label = format!("{}s remaining", state.seconds_left);
             let gauge = Gauge::default()
                 .block(Block::default().borders(Borders::BOTTOM))
                 .gauge_style(

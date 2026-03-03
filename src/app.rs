@@ -1,11 +1,14 @@
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
+use crossterm::{
+    event::{Event, EventStream, KeyCode, KeyEvent},
+    terminal::LeaveAlternateScreen,
+};
 use futures::{FutureExt, StreamExt};
 use ratatui::{DefaultTerminal, Frame};
 use thiserror::Error;
 use tokio::{select, sync::mpsc};
 
 use crate::{
-    clock::{Clock, Task},
+    clock::{Clock, ClockState, Task},
     input::{TaskInput, centered_rect},
 };
 
@@ -33,6 +36,7 @@ pub struct App {
     is_running: bool,
 
     clock: Clock,
+    clock_state: ClockState,
 
     input_mode: InputMode,
     task_input: TaskInput,
@@ -47,6 +51,7 @@ impl Default for App {
         Self {
             is_running: true,
             clock,
+            clock_state: ClockState::default(),
             action_rx,
             input_mode: InputMode::Normal,
             task_input: TaskInput::default(),
@@ -70,7 +75,7 @@ impl App {
             select! {
                 maybe_event = event => {
                     if let Some(Ok(e)) = maybe_event {
-                        self.handle_event(e)?;
+                        self.handle_event(e).await?;
                     }
                 }
                 Some(action) = self.action_rx.recv() => self.handle_action(action, terminal)?,
@@ -79,7 +84,7 @@ impl App {
         Ok(())
     }
 
-    fn handle_event(&mut self, evt: Event) -> Result<()> {
+    async fn handle_event(&mut self, evt: Event) -> Result<()> {
         match evt {
             Event::FocusGained => todo!(),
             Event::FocusLost => todo!(),
@@ -93,7 +98,7 @@ impl App {
                 InputMode::AddTask => match key_evt.code {
                     KeyCode::Enter => {
                         if let Ok(task) = self.task_input.get_task() {
-                            self.clock.tasks.push(task);
+                            self.clock.add_task(task).await;
                             self.input_mode = InputMode::Normal;
                         }
                     }
@@ -111,19 +116,27 @@ impl App {
 
     fn handle_action(&mut self, action: AppAction, terminal: &mut DefaultTerminal) -> Result<()> {
         match action {
-            AppAction::UpdateClockProgress(seconds_left) => terminal
-                .draw(|frame| {
-                    self.clock
-                        .render_with_current_seconds_left(frame, frame.area(), seconds_left)
-                })
-                .map_err(|_| AppError::DrawFail)?,
+            AppAction::UpdateClockProgress { seconds_left } => {
+                self.clock_state.seconds_left = seconds_left;
+
+                terminal
+                    .draw(|frame| self.draw(frame))
+                    .map_err(|_| AppError::DrawFail)?
+            }
+            AppAction::UpdateTaskList { current_id, tasks } => {
+                self.clock_state.current_task_id = current_id;
+                self.clock_state.tasks = tasks;
+                terminal
+                    .draw(|frame| self.draw(frame))
+                    .map_err(|_| AppError::DrawFail)?
+            }
         };
         Ok(())
     }
 
     fn draw(&mut self, frame: &mut Frame) {
         self.clock
-            .render_with_current_seconds_left(frame, frame.area(), 0.0);
+            .render_with_state(frame, frame.area(), &self.clock_state);
 
         if self.input_mode == InputMode::AddTask {
             self.task_input
