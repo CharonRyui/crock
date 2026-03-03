@@ -121,6 +121,7 @@ impl App {
                     KeyCode::Char('t') => self.clock.kill_current_task().await?,
                     KeyCode::Char('j') => self.clock.focus_next(1).await?,
                     KeyCode::Char('k') => self.clock.focus_next(-1).await?,
+                    KeyCode::Char('d') => self.clock.delete_focused_task().await?,
                     _ => {}
                 },
                 FrontPane::AddTask => match key_evt.code {

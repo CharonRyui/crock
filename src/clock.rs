@@ -203,6 +203,30 @@ impl Clock {
         Ok(())
     }
 
+    pub async fn delete_focused_task(&self) -> Result<()> {
+        let mut tasks = self.tasks.lock().await;
+        let mut focused_task_idx = self.focused_task_idx.lock().await;
+        let mut current_task_idx = self.current_task_idx.lock().await;
+        if let Some(focused_idx) = *focused_task_idx {
+            tasks.remove(focused_idx);
+            if Some(focused_idx) == *current_task_idx {
+                *current_task_idx = None;
+                self.app_action_tx.send(AppAction::ClockTimerFinish).await?;
+            }
+            if focused_idx >= tasks.len() {
+                *focused_task_idx = Some(tasks.len().saturating_sub(1));
+            }
+            self.app_action_tx
+                .send(AppAction::UpdateTaskList {
+                    current_task_idx: *current_task_idx,
+                    tasks: tasks.clone(),
+                    focused_task_idx: *focused_task_idx,
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
     #[instrument(skip(self, frame, area))]
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &ClockState) {
         let layout = Layout::default()
