@@ -61,7 +61,6 @@ impl Default for App {
 }
 
 impl App {
-    #[instrument(skip(self, terminal))]
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let mut event_stream = EventStream::new();
         loop {

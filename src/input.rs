@@ -42,13 +42,13 @@ pub struct TaskInput {
 
 impl TaskInput {
     #[instrument(skip(self))]
-    pub fn get_task(&self) -> Result<Task> {
-        let content = self.content_input.value();
+    pub fn get_task(&mut self) -> Result<Task> {
+        let content = self.content_input.value_and_reset();
         if content.is_empty() {
             return Err(TaskInputError::EmptyContent);
         }
 
-        let time = self.time_input.value();
+        let time = self.time_input.value_and_reset();
         if time.is_empty() {
             return Err(TaskInputError::EmptyTime);
         }
@@ -59,9 +59,7 @@ impl TaskInput {
 
         Ok(Task { content, seconds })
     }
-}
 
-impl TaskInput {
     #[instrument(skip(self, frame, area))]
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         frame.render_widget(Clear, area);
@@ -108,7 +106,6 @@ impl TaskInput {
             layout[1],
         );
 
-        // 5. Render Help Hint
         let help_text = Span::styled(
             " <Tab> Switch Focus | <Enter> Submit | <Esc> Cancel ",
             Style::default().fg(Color::Indexed(245)).italic(),
