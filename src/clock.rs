@@ -27,6 +27,7 @@ pub struct ClockState {
     pub tasks: Vec<Task>,
     pub current_task_id: Option<usize>,
     pub seconds_left: Option<f64>,
+    pub is_paused: bool,
 }
 
 #[derive(Debug)]
@@ -97,6 +98,9 @@ impl Clock {
                 seconds_left: task_seconds,
             })
             .await?;
+        self.app_action_tx
+            .send(AppAction::ClockTimerPauseToggle(false))
+            .await?;
         let timer = self.timer.clone();
         tokio::spawn(async move {
             let _ = timer.run(task_seconds, on_tick, on_finish).await;
@@ -144,12 +148,19 @@ impl Clock {
         Ok(())
     }
 
-    pub async fn toggle_pause(&self) {
+    pub async fn toggle_pause(&self) -> Result<()> {
         if self.timer.is_running().await {
             self.timer.pause_run().await;
+            self.app_action_tx
+                .send(AppAction::ClockTimerPauseToggle(true))
+                .await?;
         } else {
             self.timer.continue_run().await;
+            self.app_action_tx
+                .send(AppAction::ClockTimerPauseToggle(true))
+                .await?;
         }
+        Ok(())
     }
 
     pub async fn kill_current_task(&self) -> Result<()> {
@@ -189,7 +200,11 @@ impl Clock {
                     .block(Block::default().borders(Borders::BOTTOM))
                     .gauge_style(
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(if state.is_paused {
+                                Color::Red
+                            } else {
+                                Color::Cyan
+                            })
                             .bg(Color::Black)
                             .add_modifier(Modifier::BOLD),
                     )

@@ -35,6 +35,7 @@ pub enum AppAction {
         tasks: Vec<Task>,
     },
     ClockTimerFinish,
+    ClockTimerPauseToggle(bool),
 }
 
 #[derive(Debug)]
@@ -116,7 +117,7 @@ impl App {
                     }
                     KeyCode::Char('a') => self.front_pane = FrontPane::AddTask,
                     KeyCode::Char('?') => self.front_pane = FrontPane::Help,
-                    KeyCode::Char('p') => self.clock.toggle_pause().await,
+                    KeyCode::Char('p') => self.clock.toggle_pause().await?,
                     KeyCode::Char('k') => self.clock.kill_current_task().await?,
                     _ => {}
                 },
@@ -154,6 +155,7 @@ impl App {
                 self.clock_state.tasks = tasks;
             }
             AppAction::ClockTimerFinish => self.clock_state.seconds_left = None,
+            AppAction::ClockTimerPauseToggle(is_paused) => self.clock_state.is_paused = is_paused,
         };
     }
 
