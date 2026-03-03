@@ -2,22 +2,27 @@ use std::sync::Arc;
 
 use crossterm::event::{Event, EventStream, KeyCode};
 use futures::{FutureExt, StreamExt};
-use ratatui::{DefaultTerminal, Frame};
+use ratatui::{
+    DefaultTerminal, Frame,
+    layout::{Constraint, Direction, Layout, Rect},
+};
 use thiserror::Error;
 use tokio::{select, sync::mpsc};
 use tracing::instrument;
 
 use crate::{
     clock::{Clock, ClockState, Task, error::ClockError},
-    input::{TaskInput, centered_rect},
+    help::HelpPane,
+    input::TaskInput,
 };
 
 type Result<T> = std::result::Result<T, AppError>;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum InputMode {
-    Normal,
+pub enum FrontPane {
+    Main,
     AddTask,
+    Help,
 }
 
 #[derive(Debug)]
@@ -39,8 +44,10 @@ pub struct App {
     clock: Arc<Clock>,
     clock_state: ClockState,
 
-    input_mode: InputMode,
+    front_pane: FrontPane,
+
     task_input: TaskInput,
+    help_pane: HelpPane,
 
     action_rx: mpsc::Receiver<AppAction>,
 }
@@ -54,7 +61,8 @@ impl Default for App {
             clock,
             clock_state: ClockState::default(),
             action_rx,
-            input_mode: InputMode::Normal,
+            help_pane: HelpPane,
+            front_pane: FrontPane::Main,
             task_input: TaskInput::default(),
         }
     }
@@ -90,8 +98,8 @@ impl App {
         match evt {
             Event::FocusGained => todo!(),
             Event::FocusLost => todo!(),
-            Event::Key(key_evt) => match self.input_mode {
-                InputMode::Normal => match key_evt.code {
+            Event::Key(key_evt) => match self.front_pane {
+                FrontPane::Main => match key_evt.code {
                     KeyCode::Char('q') => self.is_running = false,
                     KeyCode::Char('r') => {
                         let clock = self.clock.clone();
@@ -106,19 +114,24 @@ impl App {
                             let _ = clock.run_next_task().await;
                         });
                     }
-                    KeyCode::Char('a') => self.input_mode = InputMode::AddTask,
+                    KeyCode::Char('a') => self.front_pane = FrontPane::AddTask,
+                    KeyCode::Char('?') => self.front_pane = FrontPane::Help,
                     _ => {}
                 },
-                InputMode::AddTask => match key_evt.code {
+                FrontPane::AddTask => match key_evt.code {
                     KeyCode::Enter => {
                         if let Ok(task) = self.task_input.get_task() {
                             self.clock.add_task(task).await?;
-                            self.input_mode = InputMode::Normal;
+                            self.front_pane = FrontPane::Main;
                         }
                     }
                     KeyCode::Tab => self.task_input.switch_focus(),
-                    KeyCode::Esc => self.input_mode = InputMode::Normal,
+                    KeyCode::Esc => self.front_pane = FrontPane::Main,
                     _ => self.task_input.handle_event(evt),
+                },
+                FrontPane::Help => match key_evt.code {
+                    KeyCode::Esc | KeyCode::Char('?') => self.front_pane = FrontPane::Main,
+                    _ => {}
                 },
             },
             Event::Mouse(_mouse_evt) => todo!(),
@@ -147,9 +160,14 @@ impl App {
         self.clock
             .render_with_state(frame, frame.area(), &self.clock_state);
 
-        if self.input_mode == InputMode::AddTask {
-            self.task_input
-                .render(frame, centered_rect(60, 20, frame.area()));
+        match self.front_pane {
+            FrontPane::Main => {}
+            FrontPane::AddTask => self
+                .task_input
+                .render(frame, centered_rect(60, 20, frame.area())),
+            FrontPane::Help => self
+                .help_pane
+                .render(frame, centered_rect(60, 60, frame.area())),
         }
     }
 }
@@ -160,4 +178,24 @@ pub enum AppError {
     DrawFail,
     #[error("clock error: {0}")]
     ClockError(#[from] ClockError),
+}
+
+pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }

@@ -4,6 +4,7 @@ use crate::app::{App, AppError};
 
 pub mod app;
 pub mod clock;
+pub mod help;
 pub mod input;
 pub mod logger;
 
