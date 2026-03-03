@@ -29,7 +29,7 @@ pub struct ClockState {
 #[derive(Debug)]
 pub struct Clock {
     timer: Arc<Timer>,
-    tasks: Vec<Task>,
+    tasks: Mutex<Vec<Task>>,
     current_task_id: Mutex<Option<usize>>,
     app_action_tx: mpsc::Sender<AppAction>,
 }
@@ -44,15 +44,16 @@ impl Clock {
     pub fn new(app_action_tx: mpsc::Sender<AppAction>) -> Self {
         Self {
             timer: Arc::default(),
-            tasks: Vec::default(),
+            tasks: Mutex::default(),
             current_task_id: Mutex::default(),
             app_action_tx,
         }
     }
 
-    pub async fn current_task(&self) -> Option<&Task> {
+    pub async fn current_task(&self) -> Option<Task> {
         let task_id = self.current_task_id.lock().await;
-        task_id.and_then(|id| self.tasks.get(id))
+        let tasks = self.tasks.lock().await;
+        tasks.get((*task_id)?).cloned()
     }
 
     pub async fn run_next_task(&mut self) -> Result<()> {
@@ -87,8 +88,9 @@ impl Clock {
 
         if Ok(true) == finish_rx.await {
             let mut task_id = self.current_task_id.lock().await;
+            let tasks = self.tasks.lock().await;
             *task_id = task_id.and_then(|id| {
-                if id + 1 < self.tasks.len() {
+                if id + 1 < tasks.len() {
                     Some(id + 1)
                 } else {
                     None
@@ -96,11 +98,16 @@ impl Clock {
             });
             self.app_action_tx.send(AppAction::UpdateTaskList {
                 current_id: *task_id,
-                tasks: self.tasks.clone(),
+                tasks: tasks.clone(),
             });
         }
 
         Ok(())
+    }
+
+    pub async fn add_task(&self, task: Task) {
+        let mut tasks = self.tasks.lock().await;
+        tasks.push(task);
     }
 
     pub fn render_with_current_seconds_left(
@@ -136,7 +143,7 @@ impl Clock {
             frame.render_widget(gauge, layout[0]);
         }
 
-        let items: Vec<_> = self
+        let items: Vec<_> = state
             .tasks
             .iter()
             .enumerate()
