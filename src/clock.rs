@@ -24,7 +24,7 @@ type Result<T> = std::result::Result<T, error::ClockError>;
 pub struct ClockState {
     pub tasks: Vec<Task>,
     pub current_task_id: Option<usize>,
-    pub seconds_left: f64,
+    pub seconds_left: Option<f64>,
 }
 
 #[derive(Debug)]
@@ -103,13 +103,7 @@ impl Clock {
         if Ok(true) == finish_rx.await {
             let mut task_id = self.current_task_id.lock().await;
             let tasks = self.tasks.lock().await;
-            *task_id = task_id.and_then(|id| {
-                if id + 1 < tasks.len() {
-                    Some(id + 1)
-                } else {
-                    None
-                }
-            });
+            *task_id = task_id.map(|id| (id + 1) % tasks.len());
             self.app_action_tx
                 .send(AppAction::UpdateTaskList {
                     current_id: *task_id,
@@ -135,9 +129,16 @@ impl Clock {
         Ok(())
     }
 
-    pub async fn reset(&self) {
+    pub async fn reset(&self) -> Result<()> {
         let mut task_id = self.current_task_id.lock().await;
         *task_id = None;
+        self.app_action_tx
+            .send(AppAction::UpdateTaskList {
+                current_id: None,
+                tasks: self.tasks.lock().await.clone(),
+            })
+            .await?;
+        Ok(())
     }
 
     #[instrument(skip(self, frame, area))]
@@ -147,26 +148,35 @@ impl Clock {
             .constraints([Constraint::Length(3), Constraint::Min(0)])
             .split(area);
 
-        if let Some(task_id) = state.current_task_id {
+        if state.tasks.is_empty() {
+            let paragraph = Paragraph::new("Press 'a' to add item")
+                .block(Block::default().borders(Borders::BOTTOM));
+            frame.render_widget(paragraph, layout[0]);
+        } else if let Some(task_id) = state.current_task_id {
             let task = &state.tasks[task_id];
-            let ration = if task.seconds > 0.0 {
-                (state.seconds_left / task.seconds).clamp(0.0, 1.0)
+            if let Some(seconds_left) = state.seconds_left {
+                let ration = if task.seconds > 0.0 {
+                    (seconds_left / task.seconds).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                let label = format!("{}s remaining", seconds_left);
+                let gauge = Gauge::default()
+                    .block(Block::default().borders(Borders::BOTTOM))
+                    .gauge_style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .bg(Color::Black)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .ratio(ration)
+                    .label(label);
+                frame.render_widget(gauge, layout[0]);
             } else {
-                1.0
-            };
-
-            let label = format!("{}s remaining", state.seconds_left);
-            let gauge = Gauge::default()
-                .block(Block::default().borders(Borders::BOTTOM))
-                .gauge_style(
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .bg(Color::Black)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .ratio(ration)
-                .label(label);
-            frame.render_widget(gauge, layout[0]);
+                let paragraph =
+                    Paragraph::new(&*task.content).block(Block::default().borders(Borders::BOTTOM));
+                frame.render_widget(paragraph, layout[0]);
+            }
         } else {
             let paragraph = Paragraph::new("Press 'r' to start or 'c' to continue")
                 .block(Block::default().borders(Borders::BOTTOM));

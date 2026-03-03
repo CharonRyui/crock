@@ -95,7 +95,7 @@ impl App {
                     KeyCode::Char('q') => self.is_running = false,
                     KeyCode::Char('r') => {
                         let clock = self.clock.clone();
-                        clock.reset().await;
+                        clock.reset().await?;
                         tokio::spawn(async move {
                             let _ = clock.run_next_task().await;
                         });
@@ -132,7 +132,7 @@ impl App {
     fn handle_action(&mut self, action: AppAction, terminal: &mut DefaultTerminal) -> Result<()> {
         match action {
             AppAction::UpdateClockProgress { seconds_left } => {
-                self.clock_state.seconds_left = seconds_left;
+                self.clock_state.seconds_left = Some(seconds_left);
 
                 terminal
                     .draw(|frame| self.draw(frame))
