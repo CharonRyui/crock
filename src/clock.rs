@@ -5,6 +5,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     symbols::border,
+    text::Span,
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
 };
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -161,7 +162,15 @@ impl Clock {
                 } else {
                     1.0
                 };
-                let label = format!("Running{}\n{}s remaining", task.content, seconds_left);
+                let label = Span::style(
+                    format!(
+                        "Running: {} ({} left)",
+                        task.content,
+                        format_time(seconds_left)
+                    )
+                    .into(),
+                    Style::default(),
+                );
                 let gauge = Gauge::default()
                     .block(Block::default().borders(Borders::BOTTOM))
                     .gauge_style(
