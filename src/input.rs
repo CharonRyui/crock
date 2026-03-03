@@ -1,16 +1,19 @@
-use std::num::ParseFloatError;
+use std::{num::ParseFloatError, sync::OnceLock};
 
 use crossterm::event::Event;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Position, Rect},
-    style::{Color, Style},
-    text::Span,
+    style::{Color, Style, Stylize},
+    text::Line,
     widgets::{Block, Borders, Clear, Paragraph},
 };
+use regex::Regex;
 use thiserror::Error;
 use tracing::instrument;
 use tui_input::{Input, backend::crossterm::EventHandler};
+
+static TIME_REGEX: OnceLock<Regex> = OnceLock::new();
 
 use crate::clock::Task;
 
@@ -53,9 +56,23 @@ impl TaskInput {
             return Err(TaskInputError::EmptyTime);
         }
 
+        let mut seconds = 0.0;
+        if let Some(caps) = time_regex().captures(&time) {
+            if let Some(hour) = caps.get(1) {
+                let hour: f64 = hour.as_str().parse()?;
+                seconds += hour * 3600.0;
+            }
+            if let Some(minute) = caps.get(2) {
+                let minute: f64 = minute.as_str().parse()?;
+                seconds += minute * 60.0;
+            }
+            if let Some(second) = caps.get(3) {
+                let second: f64 = second.as_str().parse()?;
+                seconds += second;
+            }
+        }
+
         let content = content.into();
-        // FIXME: do not use unwrap and allow more time format
-        let seconds = time.parse()?;
 
         Ok(Task { content, seconds })
     }
@@ -96,9 +113,10 @@ impl TaskInput {
             Style::default().fg(Color::DarkGray)
         };
 
+        let time_title = Line::from(vec!["2. Time".bold(), "(in __h__min__s format)".italic()]);
         let time_block = Block::default()
             .borders(Borders::ALL)
-            .title(" 2. Seconds ")
+            .title(time_title)
             .border_style(time_style);
 
         frame.render_widget(
@@ -106,10 +124,15 @@ impl TaskInput {
             layout[1],
         );
 
-        let help_text = Span::styled(
-            " <Tab> Switch Focus | <Enter> Submit | <Esc> Cancel ",
-            Style::default().fg(Color::Indexed(245)).italic(),
-        );
+        let help_text = Line::from(vec![
+            "<Tab>".bold(),
+            " Switch Focus | ".italic(),
+            "<Enter>".bold(),
+            " Submit | ".italic(),
+            "<Esc>".bold(),
+            " Cancel ".italic(),
+        ])
+        .fg(Color::Indexed(245));
         frame.render_widget(Paragraph::new(help_text), layout[2]);
 
         let active_chunk = if self.focus == TaskInputFocus::Content {
@@ -162,4 +185,11 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+fn time_regex() -> &'static Regex {
+    TIME_REGEX.get_or_init(|| {
+        Regex::new(r#"(?i)(?:(?:P<hour>\d*\.?\d+)h)?(?:(?:P<minute>\d*\.?\d+)min)?(?:(?:P<second>\d*\.?\d+)s)?"#)
+            .unwrap()
+    })
 }
