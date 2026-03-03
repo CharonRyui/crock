@@ -29,6 +29,7 @@ pub enum AppAction {
         current_id: Option<usize>,
         tasks: Vec<Task>,
     },
+    ClockTimerFinish,
 }
 
 #[derive(Debug)]
@@ -79,7 +80,7 @@ impl App {
                         self.handle_event(e).await?;
                     }
                 }
-                Some(action) = self.action_rx.recv() => self.handle_action(action, terminal)?,
+                Some(action) = self.action_rx.recv() => self.handle_action(action),
             };
         }
         Ok(())
@@ -121,32 +122,25 @@ impl App {
                     _ => self.task_input.handle_event(evt),
                 },
             },
-            Event::Mouse(mouse_event) => todo!(),
+            Event::Mouse(_mouse_evt) => todo!(),
             Event::Paste(_) => todo!(),
             Event::Resize(_, _) => todo!(),
         }
         Ok(())
     }
 
-    #[instrument(skip(self, terminal))]
-    fn handle_action(&mut self, action: AppAction, terminal: &mut DefaultTerminal) -> Result<()> {
+    #[instrument(skip(self))]
+    fn handle_action(&mut self, action: AppAction) {
         match action {
             AppAction::UpdateClockProgress { seconds_left } => {
                 self.clock_state.seconds_left = Some(seconds_left);
-
-                terminal
-                    .draw(|frame| self.draw(frame))
-                    .map_err(|_| AppError::DrawFail)?
             }
             AppAction::UpdateTaskList { current_id, tasks } => {
                 self.clock_state.current_task_id = current_id;
                 self.clock_state.tasks = tasks;
-                terminal
-                    .draw(|frame| self.draw(frame))
-                    .map_err(|_| AppError::DrawFail)?
             }
+            AppAction::ClockTimerFinish => self.clock_state.seconds_left = None,
         };
-        Ok(())
     }
 
     #[instrument(skip(self, frame))]

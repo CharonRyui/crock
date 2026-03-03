@@ -110,6 +110,7 @@ impl Clock {
                     tasks: tasks.clone(),
                 })
                 .await?;
+            self.app_action_tx.send(AppAction::ClockTimerFinish).await?;
         }
 
         Ok(())
@@ -160,7 +161,7 @@ impl Clock {
                 } else {
                     1.0
                 };
-                let label = format!("{}s remaining", seconds_left);
+                let label = format!("Running{}\n{}s remaining", task.content, seconds_left);
                 let gauge = Gauge::default()
                     .block(Block::default().borders(Borders::BOTTOM))
                     .gauge_style(
