@@ -196,7 +196,12 @@ impl Clock {
                 } else {
                     Style::default().fg(Color::Gray)
                 };
-                let content = format!(" [{}] {} ({}s)", i + 1, task.content, task.seconds);
+                let content = format!(
+                    " [{}] {} ({})",
+                    i + 1,
+                    task.content,
+                    format_time(task.seconds)
+                );
                 ListItem::new(content).style(style)
             })
             .collect();
@@ -211,4 +216,21 @@ impl Clock {
 
         frame.render_widget(list, layout[1]);
     }
+}
+
+fn format_time(seconds: f64) -> String {
+    let hours = (seconds / 3600.0).floor();
+    let minutes = ((seconds % 3600.0) / 60.0).floor();
+    let seconds = seconds % 60.0;
+    let mut format_str = String::new();
+    if hours > 0.0 {
+        format_str += &format!("{}h", hours as u64);
+    }
+    if minutes > 0.0 {
+        format_str += &format!("{}min", minutes as u64);
+    }
+    if seconds > 0.0 || format_str.is_empty() {
+        format_str += &format!("{}s", seconds);
+    }
+    format_str
 }

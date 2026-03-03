@@ -59,15 +59,15 @@ impl TaskInput {
         let mut seconds = 0.0;
         if let Some(caps) = time_regex().captures(&time) {
             if let Some(hour) = caps.get(1) {
-                let hour: f64 = hour.as_str().parse()?;
+                let hour: f64 = hour.as_str().parse().unwrap_or(0.0);
                 seconds += hour * 3600.0;
             }
             if let Some(minute) = caps.get(2) {
-                let minute: f64 = minute.as_str().parse()?;
+                let minute: f64 = minute.as_str().parse().unwrap_or(0.0);
                 seconds += minute * 60.0;
             }
             if let Some(second) = caps.get(3) {
-                let second: f64 = second.as_str().parse()?;
+                let second: f64 = second.as_str().parse().unwrap_or(0.0);
                 seconds += second;
             }
         }
@@ -189,7 +189,7 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 
 fn time_regex() -> &'static Regex {
     TIME_REGEX.get_or_init(|| {
-        Regex::new(r#"(?i)(?:(?:P<hour>\d*\.?\d+)h)?(?:(?:P<minute>\d*\.?\d+)min)?(?:(?:P<second>\d*\.?\d+)s)?"#)
+        Regex::new(r#"(?i)(?:(?P<hour>\d*\.?\d+)h)?(?:(?P<minute>\d*\.?\d+)min)?(?:(?P<second>\d*\.?\d+)s)?"#)
             .unwrap()
     })
 }
