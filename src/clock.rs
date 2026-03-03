@@ -25,17 +25,19 @@ type Result<T> = std::result::Result<T, error::ClockError>;
 #[derive(Debug, Default)]
 pub struct ClockState {
     pub tasks: Vec<Task>,
-    pub current_task_id: Option<usize>,
+    pub current_running_task: Option<usize>,
     pub seconds_left: Option<f64>,
     pub is_paused: bool,
+    pub focused_task: Option<usize>,
 }
 
 #[derive(Debug)]
 pub struct Clock {
     timer: Arc<Timer>,
     tasks: Mutex<Vec<Task>>,
-    current_task_id: Mutex<Option<usize>>,
+    current_running_task: Mutex<Option<usize>>,
     app_action_tx: mpsc::Sender<AppAction>,
+    focused_task_idx: Mutex<Option<usize>>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,14 +51,15 @@ impl Clock {
         Self {
             timer: Arc::default(),
             tasks: Mutex::default(),
-            current_task_id: Mutex::default(),
+            current_running_task: Mutex::default(),
+            focused_task_idx: Mutex::default(),
             app_action_tx,
         }
     }
 
     #[instrument(skip(self))]
     pub async fn current_task(&self) -> Option<Task> {
-        let task_id = self.current_task_id.lock().await;
+        let task_id = self.current_running_task.lock().await;
         let tasks = self.tasks.lock().await;
         tasks.get((*task_id)?).cloned()
     }
@@ -65,13 +68,14 @@ impl Clock {
     pub async fn run_next_task(&self) -> Result<()> {
         let app_tx = self.app_action_tx.clone();
         {
-            let mut task_id = self.current_task_id.lock().await;
+            let mut task_id = self.current_running_task.lock().await;
             if task_id.is_none() {
                 *task_id = Some(0)
             }
+            *self.focused_task_idx.lock().await = *task_id;
             self.app_action_tx
                 .send(AppAction::UpdateTaskList {
-                    current_id: *task_id,
+                    current_task_idx: *task_id,
                     tasks: self.tasks.lock().await.clone(),
                 })
                 .await?;
@@ -107,12 +111,12 @@ impl Clock {
         });
 
         if Ok(true) == finish_rx.await {
-            let mut task_id = self.current_task_id.lock().await;
+            let mut task_id = self.current_running_task.lock().await;
             let tasks = self.tasks.lock().await;
             *task_id = task_id.map(|id| (id + 1) % tasks.len());
             self.app_action_tx
                 .send(AppAction::UpdateTaskList {
-                    current_id: *task_id,
+                    current_task_idx: *task_id,
                     tasks: tasks.clone(),
                 })
                 .await?;
@@ -125,11 +129,11 @@ impl Clock {
     #[instrument(skip(self))]
     pub async fn add_task(&self, task: Task) -> Result<()> {
         let mut tasks = self.tasks.lock().await;
-        let task_id = self.current_task_id.lock().await;
+        let task_id = self.current_running_task.lock().await;
         tasks.push(task);
         self.app_action_tx
             .send(AppAction::UpdateTaskList {
-                current_id: *task_id,
+                current_task_idx: *task_id,
                 tasks: tasks.clone(),
             })
             .await?;
@@ -137,11 +141,11 @@ impl Clock {
     }
 
     pub async fn reset(&self) -> Result<()> {
-        let mut task_id = self.current_task_id.lock().await;
+        let mut task_id = self.current_running_task.lock().await;
         *task_id = None;
         self.app_action_tx
             .send(AppAction::UpdateTaskList {
-                current_id: None,
+                current_task_idx: None,
                 tasks: self.tasks.lock().await.clone(),
             })
             .await?;
@@ -169,6 +173,21 @@ impl Clock {
         Ok(())
     }
 
+    pub async fn focus_next(&self, offset: isize) -> Result<()> {
+        let focused_task = self.focused_task_idx.lock().await;
+        let idx = if focused_task.is_none() {
+            0
+        } else {
+            let tasks = self.tasks.lock().await;
+            (focused_task.unwrap() as isize + offset) as usize % tasks.len()
+        };
+        *self.focused_task_idx.lock().await = Some(idx);
+        self.app_action_tx
+            .send(AppAction::FocusTask(Some(idx)))
+            .await?;
+        Ok(())
+    }
+
     #[instrument(skip(self, frame, area))]
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &ClockState) {
         let layout = Layout::default()
@@ -180,7 +199,7 @@ impl Clock {
             let paragraph = Paragraph::new("Press 'a' to add item")
                 .block(Block::default().borders(Borders::BOTTOM));
             frame.render_widget(paragraph, layout[0]);
-        } else if let Some(task_id) = state.current_task_id {
+        } else if let Some(task_id) = state.current_running_task {
             let gauge_layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
@@ -249,13 +268,17 @@ impl Clock {
             .iter()
             .enumerate()
             .map(|(i, task)| {
-                let style = if Some(i) == state.current_task_id {
+                let mut style = if Some(i) == state.focused_task {
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::REVERSED)
                 } else {
                     Style::default().fg(Color::Gray)
                 };
+
+                if Some(i) == state.current_running_task {
+                    style = style.fg(Color::Cyan).add_modifier(Modifier::BOLD);
+                }
                 let content = format!(
                     " [{}] {} ({})",
                     i + 1,

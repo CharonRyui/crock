@@ -31,11 +31,12 @@ pub enum AppAction {
         seconds_left: f64,
     },
     UpdateTaskList {
-        current_id: Option<usize>,
+        current_task_idx: Option<usize>,
         tasks: Vec<Task>,
     },
     ClockTimerFinish,
     ClockTimerPauseToggle(bool),
+    FocusTask(Option<usize>),
 }
 
 #[derive(Debug)]
@@ -150,12 +151,16 @@ impl App {
             AppAction::UpdateClockProgress { seconds_left } => {
                 self.clock_state.seconds_left = Some(seconds_left);
             }
-            AppAction::UpdateTaskList { current_id, tasks } => {
-                self.clock_state.current_task_id = current_id;
+            AppAction::UpdateTaskList {
+                current_task_idx,
+                tasks,
+            } => {
+                self.clock_state.current_running_task = current_task_idx;
                 self.clock_state.tasks = tasks;
             }
             AppAction::ClockTimerFinish => self.clock_state.seconds_left = None,
             AppAction::ClockTimerPauseToggle(is_paused) => self.clock_state.is_paused = is_paused,
+            AppAction::FocusTask(idx) => self.clock_state.focused_task = idx,
         };
     }
 
