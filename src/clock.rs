@@ -211,10 +211,31 @@ impl Clock {
             tasks.remove(focused_idx);
             if Some(focused_idx) == *current_task_idx {
                 *current_task_idx = None;
+                self.kill_current_task().await?;
                 self.app_action_tx.send(AppAction::ClockTimerFinish).await?;
             }
             if focused_idx >= tasks.len() {
                 *focused_task_idx = Some(tasks.len().saturating_sub(1));
+            }
+            self.app_action_tx
+                .send(AppAction::UpdateTaskList {
+                    current_task_idx: *current_task_idx,
+                    tasks: tasks.clone(),
+                    focused_task_idx: *focused_task_idx,
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn replace_focused_task(&self, task: Task) -> Result<()> {
+        let mut tasks = self.tasks.lock().await;
+        let focused_task_idx = self.focused_task_idx.lock().await;
+        let current_task_idx = self.current_task_idx.lock().await;
+        if let Some(focused_idx) = *focused_task_idx {
+            tasks[focused_idx] = task;
+            if Some(focused_idx) == *current_task_idx {
+                self.kill_current_task().await?;
             }
             self.app_action_tx
                 .send(AppAction::UpdateTaskList {

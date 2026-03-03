@@ -22,6 +22,7 @@ type Result<T> = std::result::Result<T, AppError>;
 pub enum FrontPane {
     Main,
     AddTask,
+    EditTask,
     Help,
 }
 
@@ -122,12 +123,28 @@ impl App {
                     KeyCode::Char('j') => self.clock.focus_next(1).await?,
                     KeyCode::Char('k') => self.clock.focus_next(-1).await?,
                     KeyCode::Char('d') => self.clock.delete_focused_task().await?,
+                    KeyCode::Char('e') => {
+                        if self.clock_state.focused_task.is_some() {
+                            self.front_pane = FrontPane::EditTask
+                        }
+                    }
                     _ => {}
                 },
                 FrontPane::AddTask => match key_evt.code {
                     KeyCode::Enter => {
                         if let Ok(task) = self.task_input.get_task() {
                             self.clock.add_task(task).await?;
+                            self.front_pane = FrontPane::Main;
+                        }
+                    }
+                    KeyCode::Tab => self.task_input.switch_focus(),
+                    KeyCode::Esc => self.front_pane = FrontPane::Main,
+                    _ => self.task_input.handle_event(evt),
+                },
+                FrontPane::EditTask => match key_evt.code {
+                    KeyCode::Enter => {
+                        if let Ok(task) = self.task_input.get_task() {
+                            self.clock.replace_focused_task(task).await?;
                             self.front_pane = FrontPane::Main;
                         }
                     }
@@ -174,7 +191,7 @@ impl App {
 
         match self.front_pane {
             FrontPane::Main => {}
-            FrontPane::AddTask => self
+            FrontPane::AddTask | FrontPane::EditTask => self
                 .task_input
                 .render(frame, centered_rect(60, 20, frame.area())),
             FrontPane::Help => self
