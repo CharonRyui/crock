@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use tokio::sync::Mutex;
-use tracing::{info, instrument};
+use tracing::instrument;
 
 use crate::clock::error::TimerError;
 
@@ -30,12 +30,10 @@ impl Timer {
         loop {
             let mut left_seconds = self.left_seconds.lock().await;
             if *left_seconds <= 0.0 {
-                info!("timer finish");
                 on_finish();
                 break;
             }
             *left_seconds -= 1.0;
-            info!("tick in timer");
             on_tick(*left_seconds);
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
