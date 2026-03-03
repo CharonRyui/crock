@@ -3,13 +3,14 @@ use std::sync::Arc;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier, Style, Stylize},
     symbols::border,
     text::Span,
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
 };
 use tokio::sync::{Mutex, mpsc, oneshot};
 use tracing::instrument;
+use tui_big_text::{BigText, PixelSize};
 
 use crate::{
     app::AppAction,
@@ -147,7 +148,7 @@ impl Clock {
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &ClockState) {
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(3), Constraint::Min(0)])
+            .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
             .split(area);
 
         if state.tasks.is_empty() {
@@ -155,6 +156,10 @@ impl Clock {
                 .block(Block::default().borders(Borders::BOTTOM));
             frame.render_widget(paragraph, layout[0]);
         } else if let Some(task_id) = state.current_task_id {
+            let gauge_layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                .split(layout[0]);
             let task = &state.tasks[task_id];
             if let Some(seconds_left) = state.seconds_left {
                 let ration = if task.seconds > 0.0 {
@@ -163,12 +168,7 @@ impl Clock {
                     1.0
                 };
                 let label = Span::style(
-                    format!(
-                        "Running: {} ({} left)",
-                        task.content,
-                        format_time(seconds_left)
-                    )
-                    .into(),
+                    format!("{} left", format_time(seconds_left)).into(),
                     Style::default(),
                 );
                 let gauge = Gauge::default()
@@ -181,11 +181,33 @@ impl Clock {
                     )
                     .ratio(ration)
                     .label(label);
-                frame.render_widget(gauge, layout[0]);
+                let big_text = BigText::builder()
+                    .pixel_size(PixelSize::Full)
+                    .style(Style::new().blue())
+                    .lines(vec![task.content.blue().into()])
+                    .centered()
+                    .build();
+                frame.render_widget(big_text, gauge_layout[0]);
+                frame.render_widget(gauge, gauge_layout[1]);
             } else {
-                let paragraph =
-                    Paragraph::new(&*task.content).block(Block::default().borders(Borders::BOTTOM));
-                frame.render_widget(paragraph, layout[0]);
+                let big_text_layout = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+                    .split(layout[0]);
+                let content_text = BigText::builder()
+                    .pixel_size(PixelSize::Full)
+                    .style(Style::new().blue())
+                    .lines(vec![task.content.blue().into()])
+                    .centered()
+                    .build();
+                let time_text = BigText::builder()
+                    .pixel_size(PixelSize::Quadrant)
+                    .style(Style::new().cyan())
+                    .lines(vec![format_time(task.seconds).white().into()])
+                    .centered()
+                    .build();
+                frame.render_widget(content_text, big_text_layout[0]);
+                frame.render_widget(time_text, big_text_layout[1]);
             }
         } else {
             let paragraph = Paragraph::new("Press 'r' to start or 'c' to continue")
