@@ -9,6 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use thiserror::Error;
+use tracing::instrument;
 use tui_input::{Input, backend::crossterm::EventHandler};
 
 use crate::clock::Task;
@@ -40,6 +41,7 @@ pub struct TaskInput {
 }
 
 impl TaskInput {
+    #[instrument(skip(self))]
     pub fn get_task(&self) -> Result<Task> {
         let content = self.content_input.value();
         if content.is_empty() {
@@ -60,6 +62,7 @@ impl TaskInput {
 }
 
 impl TaskInput {
+    #[instrument(skip(self, frame, area))]
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         frame.render_widget(Clear, area);
 

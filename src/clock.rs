@@ -8,6 +8,7 @@ use ratatui::{
     widgets::{Block, Borders, Gauge, List, ListItem},
 };
 use tokio::sync::{Mutex, mpsc, oneshot};
+use tracing::instrument;
 
 use crate::{
     app::AppAction,
@@ -50,12 +51,14 @@ impl Clock {
         }
     }
 
+    #[instrument(skip(self))]
     pub async fn current_task(&self) -> Option<Task> {
         let task_id = self.current_task_id.lock().await;
         let tasks = self.tasks.lock().await;
         tasks.get((*task_id)?).cloned()
     }
 
+    #[instrument(skip(self))]
     pub async fn run_next_task(&self) -> Result<()> {
         let app_tx = self.app_action_tx.clone();
         {
@@ -107,6 +110,7 @@ impl Clock {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub async fn add_task(&self, task: Task) -> Result<()> {
         let mut tasks = self.tasks.lock().await;
         let task_id = self.current_task_id.lock().await;
@@ -120,6 +124,7 @@ impl Clock {
         Ok(())
     }
 
+    #[instrument(skip(self, frame, area))]
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &ClockState) {
         let layout = Layout::default()
             .direction(Direction::Vertical)

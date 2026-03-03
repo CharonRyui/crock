@@ -5,6 +5,7 @@ use futures::{FutureExt, StreamExt};
 use ratatui::{DefaultTerminal, Frame};
 use thiserror::Error;
 use tokio::{select, sync::mpsc};
+use tracing::instrument;
 
 use crate::{
     clock::{Clock, ClockState, Task},
@@ -59,6 +60,7 @@ impl Default for App {
 }
 
 impl App {
+    #[instrument(skip(self, terminal))]
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let mut event_stream = EventStream::new();
         loop {
@@ -83,6 +85,7 @@ impl App {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn handle_event(&mut self, evt: Event) -> Result<()> {
         match evt {
             Event::FocusGained => todo!(),
@@ -118,6 +121,7 @@ impl App {
         Ok(())
     }
 
+    #[instrument(skip(self, terminal))]
     fn handle_action(&mut self, action: AppAction, terminal: &mut DefaultTerminal) -> Result<()> {
         match action {
             AppAction::UpdateClockProgress { seconds_left } => {
@@ -138,6 +142,7 @@ impl App {
         Ok(())
     }
 
+    #[instrument(skip(self, frame))]
     fn draw(&mut self, frame: &mut Frame) {
         self.clock
             .render_with_state(frame, frame.area(), &self.clock_state);
