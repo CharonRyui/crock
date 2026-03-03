@@ -56,6 +56,8 @@ impl TaskInput {
             return Err(TaskInputError::EmptyTime);
         }
 
+        self.focus = TaskInputFocus::Content;
+
         let mut seconds = 0.0;
         if let Some(caps) = time_regex().captures(&time) {
             if let Some(hour) = caps.get(1) {
