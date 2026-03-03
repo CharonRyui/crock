@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     symbols::border,
-    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Gauge, List, ListItem},
 };
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::{
     app::AppAction,
@@ -18,53 +20,86 @@ pub mod timer;
 type Result<T> = std::result::Result<T, error::ClockError>;
 
 #[derive(Debug)]
-pub struct Clock {
-    timer: Timer,
-    pub tasks: Vec<Task>,
-    pub current_task_id: Option<usize>,
-    app_action_tx: mpsc::Sender<AppAction>,
+pub struct ClockState {
+    tasks: Vec<Task>,
+    current_task_id: Option<usize>,
+    left_seconds: f64,
 }
 
 #[derive(Debug)]
+pub struct Clock {
+    timer: Arc<Timer>,
+    tasks: Vec<Task>,
+    current_task_id: Mutex<Option<usize>>,
+    app_action_tx: mpsc::Sender<AppAction>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Task {
-    pub content: String,
+    pub content: Arc<str>,
     pub seconds: f64,
 }
 
 impl Clock {
     pub fn new(app_action_tx: mpsc::Sender<AppAction>) -> Self {
         Self {
-            timer: Timer::default(),
-            tasks: Vec::new(),
-            current_task_id: None,
+            timer: Arc::default(),
+            tasks: Vec::default(),
+            current_task_id: Mutex::default(),
             app_action_tx,
         }
     }
 
-    pub fn current_task_seconds(&self) -> Option<f64> {
-        self.tasks
-            .get(self.current_task_id?)
-            .map(|task| task.seconds)
+    pub async fn current_task(&self) -> Option<&Task> {
+        let task_id = self.current_task_id.lock().await;
+        task_id.and_then(|id| self.tasks.get(id))
     }
 
-    pub async fn start_next_task(&mut self) -> Result<()> {
+    pub async fn run_next_task(&mut self) -> Result<()> {
         let app_tx = self.app_action_tx.clone();
-        let on_tick = move |left_seconds| {
+        {
+            let mut task_id = self.current_task_id.lock().await;
+            if task_id.is_none() {
+                *task_id = Some(0)
+            }
+        }
+
+        let task_seconds = self.current_task().await.ok_or(ClockError::NoTask)?.seconds;
+
+        let on_tick = move |seconds_left| {
             let app_tx = app_tx.clone();
             tokio::spawn(async move {
                 let _ = app_tx
-                    .send(AppAction::UpdateClockProgress(left_seconds))
+                    .send(AppAction::UpdateClockProgress { seconds_left })
                     .await;
             });
         };
 
-        if self.current_task_id.is_none() {
-            self.current_task_id = Some(0);
-        }
-        let task_seconds = self.current_task_seconds().ok_or(ClockError::NoTask)?;
-        self.timer.start(task_seconds, on_tick).await?;
+        let (finish_tx, finish_rx) = oneshot::channel();
+        let on_finish = move || {
+            finish_tx.send(true);
+        };
 
-        self.current_task_id = self.current_task_id.map(|id| (id + 1) % self.tasks.len());
+        let timer = self.timer.clone();
+        tokio::spawn(async move {
+            timer.run(task_seconds, on_tick, on_finish).await;
+        });
+
+        if Ok(true) == finish_rx.await {
+            let mut task_id = self.current_task_id.lock().await;
+            *task_id = task_id.and_then(|id| {
+                if id + 1 < self.tasks.len() {
+                    Some(id + 1)
+                } else {
+                    None
+                }
+            });
+            self.app_action_tx.send(AppAction::UpdateTaskList {
+                current_id: *task_id,
+                tasks: self.tasks.clone(),
+            });
+        }
+
         Ok(())
     }
 
@@ -72,21 +107,22 @@ impl Clock {
         &self,
         frame: &mut Frame,
         area: Rect,
-        seconds_left: f64,
+        state: &ClockState,
     ) {
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(3), Constraint::Min(0)])
             .split(area);
 
-        if let Some(total_seconds) = self.current_task_seconds() {
-            let ration = if total_seconds > 0.0 {
-                (seconds_left / total_seconds).clamp(0.0, 1.0)
+        if let Some(task_id) = state.current_task_id {
+            let task = &state.tasks[task_id];
+            let ration = if task.seconds > 0.0 {
+                (state.left_seconds / task.seconds).clamp(0.0, 1.0)
             } else {
                 1.0
             };
 
-            let label = format!("{}s remaining", seconds_left);
+            let label = format!("{}s remaining", state.left_seconds);
             let gauge = Gauge::default()
                 .block(Block::default().borders(Borders::BOTTOM))
                 .gauge_style(
@@ -98,10 +134,6 @@ impl Clock {
                 .ratio(ration)
                 .label(label);
             frame.render_widget(gauge, layout[0]);
-        } else {
-            let paragraph =
-                Paragraph::new("Not running").block(Block::default().borders(Borders::BOTTOM));
-            frame.render_widget(paragraph, layout[0]);
         }
 
         let items: Vec<_> = self
@@ -109,7 +141,7 @@ impl Clock {
             .iter()
             .enumerate()
             .map(|(i, task)| {
-                let style = if Some(i) == self.current_task_id {
+                let style = if Some(i) == state.current_task_id {
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::REVERSED)
@@ -132,5 +164,3 @@ impl Clock {
         frame.render_widget(list, layout[1]);
     }
 }
-
-impl Clock {}

@@ -5,7 +5,7 @@ use thiserror::Error;
 use tokio::{select, sync::mpsc};
 
 use crate::{
-    clock::Clock,
+    clock::{Clock, Task},
     input::{TaskInput, centered_rect},
 };
 
@@ -19,7 +19,13 @@ pub enum InputMode {
 
 #[derive(Debug)]
 pub enum AppAction {
-    UpdateClockProgress(f64),
+    UpdateClockProgress {
+        seconds_left: f64,
+    },
+    UpdateTaskList {
+        current_id: Option<usize>,
+        tasks: Vec<Task>,
+    },
 }
 
 #[derive(Debug)]

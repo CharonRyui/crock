@@ -51,7 +51,7 @@ impl TaskInput {
             return Err(TaskInputError::EmptyTime);
         }
 
-        let content = content.to_string();
+        let content = content.into();
         // FIXME: do not use unwrap and allow more time format
         let seconds = time.parse()?;
 
