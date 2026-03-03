@@ -174,14 +174,14 @@ impl Clock {
     }
 
     pub async fn focus_next(&self, offset: isize) -> Result<()> {
-        let focused_task = self.focused_task_idx.lock().await;
-        let idx = if focused_task.is_none() {
+        let mut focused_task_idx = self.focused_task_idx.lock().await;
+        let idx = if focused_task_idx.is_none() {
             0
         } else {
             let tasks = self.tasks.lock().await;
-            (focused_task.unwrap() as isize + offset) as usize % tasks.len()
+            (focused_task_idx.unwrap() as isize + offset) as usize % tasks.len()
         };
-        *self.focused_task_idx.lock().await = Some(idx);
+        *focused_task_idx = Some(idx);
         self.app_action_tx
             .send(AppAction::FocusTask(Some(idx)))
             .await?;
