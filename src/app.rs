@@ -1,7 +1,6 @@
-use crossterm::{
-    event::{Event, EventStream, KeyCode, KeyEvent},
-    terminal::LeaveAlternateScreen,
-};
+use std::sync::Arc;
+
+use crossterm::event::{Event, EventStream, KeyCode};
 use futures::{FutureExt, StreamExt};
 use ratatui::{DefaultTerminal, Frame};
 use thiserror::Error;
@@ -35,7 +34,7 @@ pub enum AppAction {
 pub struct App {
     is_running: bool,
 
-    clock: Clock,
+    clock: Arc<Clock>,
     clock_state: ClockState,
 
     input_mode: InputMode,
@@ -47,7 +46,7 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         let (action_tx, action_rx) = mpsc::channel(128);
-        let clock = Clock::new(action_tx);
+        let clock = Arc::new(Clock::new(action_tx));
         Self {
             is_running: true,
             clock,
@@ -91,7 +90,12 @@ impl App {
             Event::Key(key_evt) => match self.input_mode {
                 InputMode::Normal => match key_evt.code {
                     KeyCode::Char('q') => self.is_running = false,
-                    KeyCode::Char('r') => self.run_clock(),
+                    KeyCode::Char('r') => {
+                        let clock = self.clock.clone();
+                        tokio::spawn(async move {
+                            let _ = clock.run_next_task().await;
+                        });
+                    }
                     KeyCode::Char('a') => self.input_mode = InputMode::AddTask,
                     _ => {}
                 },
@@ -142,10 +146,6 @@ impl App {
             self.task_input
                 .render(frame, centered_rect(60, 20, frame.area()));
         }
-    }
-
-    fn run_clock(&self) {
-        todo!()
     }
 }
 

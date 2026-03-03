@@ -56,7 +56,7 @@ impl Clock {
         tasks.get((*task_id)?).cloned()
     }
 
-    pub async fn run_next_task(&mut self) -> Result<()> {
+    pub async fn run_next_task(&self) -> Result<()> {
         let app_tx = self.app_action_tx.clone();
         {
             let mut task_id = self.current_task_id.lock().await;
@@ -78,12 +78,12 @@ impl Clock {
 
         let (finish_tx, finish_rx) = oneshot::channel();
         let on_finish = move || {
-            finish_tx.send(true);
+            let _ = finish_tx.send(true);
         };
 
         let timer = self.timer.clone();
         tokio::spawn(async move {
-            timer.run(task_seconds, on_tick, on_finish).await;
+            let _ = timer.run(task_seconds, on_tick, on_finish).await;
         });
 
         if Ok(true) == finish_rx.await {
@@ -96,18 +96,28 @@ impl Clock {
                     None
                 }
             });
-            self.app_action_tx.send(AppAction::UpdateTaskList {
-                current_id: *task_id,
-                tasks: tasks.clone(),
-            });
+            self.app_action_tx
+                .send(AppAction::UpdateTaskList {
+                    current_id: *task_id,
+                    tasks: tasks.clone(),
+                })
+                .await?;
         }
 
         Ok(())
     }
 
-    pub async fn add_task(&self, task: Task) {
+    pub async fn add_task(&self, task: Task) -> Result<()> {
         let mut tasks = self.tasks.lock().await;
+        let task_id = self.current_task_id.lock().await;
         tasks.push(task);
+        self.app_action_tx
+            .send(AppAction::UpdateTaskList {
+                current_id: *task_id,
+                tasks: tasks.clone(),
+            })
+            .await?;
+        Ok(())
     }
 
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &ClockState) {
