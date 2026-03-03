@@ -116,6 +116,8 @@ impl App {
                     }
                     KeyCode::Char('a') => self.front_pane = FrontPane::AddTask,
                     KeyCode::Char('?') => self.front_pane = FrontPane::Help,
+                    KeyCode::Char('p') => self.clock.toggle_pause().await,
+                    KeyCode::Char('k') => self.clock.kill_current_task().await?,
                     _ => {}
                 },
                 FrontPane::AddTask => match key_evt.code {

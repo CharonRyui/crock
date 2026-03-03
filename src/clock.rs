@@ -144,6 +144,20 @@ impl Clock {
         Ok(())
     }
 
+    pub async fn toggle_pause(&self) {
+        if self.timer.is_running().await {
+            self.timer.pause_run().await;
+        } else {
+            self.timer.continue_run().await;
+        }
+    }
+
+    pub async fn kill_current_task(&self) -> Result<()> {
+        self.timer.stop_run().await;
+        self.app_action_tx.send(AppAction::ClockTimerFinish).await?;
+        Ok(())
+    }
+
     #[instrument(skip(self, frame, area))]
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &ClockState) {
         let layout = Layout::default()

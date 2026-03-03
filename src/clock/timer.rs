@@ -10,6 +10,7 @@ type Result<T> = std::result::Result<T, TimerError>;
 #[derive(Debug, Default)]
 pub struct Timer {
     left_seconds: Mutex<f64>,
+    is_running: Mutex<bool>,
 }
 
 impl Timer {
@@ -27,9 +28,19 @@ impl Timer {
             }
             *left_seconds = seconds;
         }
+
+        self.continue_run().await;
         loop {
+            {
+                if !*self.is_running.lock().await {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
+            }
+
             let mut left_seconds = self.left_seconds.lock().await;
             if *left_seconds <= 0.0 {
+                self.pause_run().await;
                 on_finish();
                 break;
             }
@@ -40,8 +51,20 @@ impl Timer {
         Ok(())
     }
 
-    pub async fn stop(&self) {
-        let mut left_seconds = self.left_seconds.lock().await;
-        *left_seconds = 0.0;
+    pub async fn pause_run(&self) {
+        *self.is_running.lock().await = false
+    }
+
+    pub async fn continue_run(&self) {
+        *self.is_running.lock().await = true
+    }
+
+    pub async fn is_running(&self) -> bool {
+        *self.is_running.lock().await
+    }
+
+    pub async fn stop_run(&self) {
+        self.pause_run().await;
+        *self.left_seconds.lock().await = 0.0
     }
 }
