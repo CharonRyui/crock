@@ -8,7 +8,7 @@ use tokio::{select, sync::mpsc};
 use tracing::instrument;
 
 use crate::{
-    clock::{Clock, ClockState, Task},
+    clock::{Clock, ClockState, Task, error::ClockError},
     input::{TaskInput, centered_rect},
 };
 
@@ -95,6 +95,13 @@ impl App {
                     KeyCode::Char('q') => self.is_running = false,
                     KeyCode::Char('r') => {
                         let clock = self.clock.clone();
+                        clock.reset().await;
+                        tokio::spawn(async move {
+                            let _ = clock.run_next_task().await;
+                        });
+                    }
+                    KeyCode::Char('c') => {
+                        let clock = self.clock.clone();
                         tokio::spawn(async move {
                             let _ = clock.run_next_task().await;
                         });
@@ -105,7 +112,7 @@ impl App {
                 InputMode::AddTask => match key_evt.code {
                     KeyCode::Enter => {
                         if let Ok(task) = self.task_input.get_task() {
-                            self.clock.add_task(task).await;
+                            self.clock.add_task(task).await?;
                             self.input_mode = InputMode::Normal;
                         }
                     }
@@ -158,4 +165,6 @@ impl App {
 pub enum AppError {
     #[error("fail to draw app")]
     DrawFail,
+    #[error("clock error: {0}")]
+    ClockError(#[from] ClockError),
 }

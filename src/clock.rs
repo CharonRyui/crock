@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     symbols::border,
-    widgets::{Block, Borders, Gauge, List, ListItem},
+    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
 };
 use tokio::sync::{Mutex, mpsc, oneshot};
 use tracing::instrument;
@@ -66,6 +66,12 @@ impl Clock {
             if task_id.is_none() {
                 *task_id = Some(0)
             }
+            self.app_action_tx
+                .send(AppAction::UpdateTaskList {
+                    current_id: *task_id,
+                    tasks: self.tasks.lock().await.clone(),
+                })
+                .await?;
         }
 
         let task_seconds = self.current_task().await.ok_or(ClockError::NoTask)?.seconds;
@@ -84,6 +90,11 @@ impl Clock {
             let _ = finish_tx.send(true);
         };
 
+        self.app_action_tx
+            .send(AppAction::UpdateClockProgress {
+                seconds_left: task_seconds,
+            })
+            .await?;
         let timer = self.timer.clone();
         tokio::spawn(async move {
             let _ = timer.run(task_seconds, on_tick, on_finish).await;
@@ -124,6 +135,11 @@ impl Clock {
         Ok(())
     }
 
+    pub async fn reset(&self) {
+        let mut task_id = self.current_task_id.lock().await;
+        *task_id = None;
+    }
+
     #[instrument(skip(self, frame, area))]
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &ClockState) {
         let layout = Layout::default()
@@ -151,6 +167,10 @@ impl Clock {
                 .ratio(ration)
                 .label(label);
             frame.render_widget(gauge, layout[0]);
+        } else {
+            let paragraph = Paragraph::new("Press 'r' to start or 'c' to continue")
+                .block(Block::default().borders(Borders::BOTTOM));
+            frame.render_widget(paragraph, layout[0]);
         }
 
         let items: Vec<_> = state
