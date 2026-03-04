@@ -55,6 +55,20 @@ impl TaskPane {
         )
     }
 
+    pub async fn set_focused_task_current(&self) -> Result<()> {
+        let mut current_task_idx = self.current_task_idx.lock().await;
+        let focused_task_idx = self.focused_task_idx.lock().await;
+        if *current_task_idx != *focused_task_idx {
+            *current_task_idx = *focused_task_idx;
+            self.app_action_tx
+                .send(AppAction::TaskPane(TaskPaneAppAction::UpdateCurrentTask(
+                    *current_task_idx,
+                )))
+                .await?;
+        }
+        Ok(())
+    }
+
     pub async fn finish_current_task(&self) {
         let mut current_task_idx = self.current_task_idx.lock().await;
         let tasks = self.tasks.lock().await;

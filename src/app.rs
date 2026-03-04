@@ -42,7 +42,6 @@ pub enum TaskPaneAppAction {
     UpdateTasks(Vec<Task>),
     UpdateCurrentTask(Option<usize>),
     UpdateFocusedTask(Option<usize>),
-    InterruptCurrentTask,
 }
 
 #[derive(Debug)]
@@ -96,6 +95,17 @@ impl App {
             if !self.is_running {
                 break;
             }
+
+            if let Some((current_task, next_task)) =
+                self.task_pane.get_current_and_next_tasks_to_run().await
+            {
+                self.clock_state.current_task = Some(current_task.clone());
+                self.clock_state.next_task = Some(next_task);
+            } else {
+                self.clock_state.current_task = None;
+                self.clock_state.next_task = None;
+            }
+
             let event = event_stream.next().fuse();
             terminal
                 .draw(|frame| {
@@ -123,14 +133,10 @@ impl App {
                 FrontPane::Clock => match key_evt.code {
                     KeyCode::Char('q') => self.is_running = false,
                     KeyCode::Char('r') => {
-                        if let Some((current_task, next_task)) =
-                            self.task_pane.get_current_and_next_tasks_to_run().await
-                        {
-                            self.clock_state.current_task = Some(current_task.clone());
-                            self.clock_state.next_task = Some(next_task);
+                        if let Some(task) = self.clock_state.current_task.clone() {
                             let clock = self.clock.clone();
                             tokio::spawn(async move {
-                                let _ = clock.run_task(current_task).await;
+                                let _ = clock.run_task(task).await;
                             });
                         }
                     }
@@ -166,16 +172,19 @@ impl App {
                     _ => self.task_input.handle_event(evt),
                 },
                 FrontPane::Help => match key_evt.code {
-                    KeyCode::Esc | KeyCode::Char('?') => self.front_pane = FrontPane::Clock,
+                    KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                        self.front_pane = FrontPane::Clock
+                    }
                     _ => {}
                 },
                 FrontPane::TaskPane => match key_evt.code {
                     KeyCode::Char('a') => self.front_pane = FrontPane::AddTask,
-                    KeyCode::Char('e') => self.front_pane = FrontPane::EditTask,
+                    KeyCode::Char('r') => self.front_pane = FrontPane::EditTask,
                     KeyCode::Char('d') => self.task_pane.delete_focused_task().await?,
                     KeyCode::Char('j') => self.task_pane.focus_on_next(1).await?,
                     KeyCode::Char('k') => self.task_pane.focus_on_next(-1).await?,
                     KeyCode::Char('q') => self.front_pane = FrontPane::Clock,
+                    KeyCode::Enter => self.task_pane.set_focused_task_current().await?,
                     KeyCode::Esc => self.front_pane = FrontPane::Clock,
                     _ => {}
                 },
@@ -211,15 +220,6 @@ impl App {
                             .await?;
 
                         self.task_pane.finish_current_task().await;
-                        if let Some((current_task, next_task)) =
-                            self.task_pane.get_current_and_next_tasks_to_run().await
-                        {
-                            self.clock_state.current_task = Some(current_task.clone());
-                            self.clock_state.next_task = Some(next_task);
-                        } else {
-                            self.clock_state.current_task = None;
-                            self.clock_state.next_task = None;
-                        }
                     }
                 }
             },
@@ -233,10 +233,8 @@ impl App {
                         self.clock_state.next_task = Some(next_task);
                     }
                 }
-                TaskPaneAppAction::InterruptCurrentTask => {
-                    self.clock.kill_current_task().await?;
-                }
                 TaskPaneAppAction::UpdateCurrentTask(task) => {
+                    self.clock.kill_current_task().await?;
                     self.task_pane_state.current_task_idx = task
                 }
                 TaskPaneAppAction::UpdateFocusedTask(task) => {
