@@ -57,28 +57,44 @@ impl TaskPane {
 
     pub async fn replace_focused_task(&self, task: Task) -> Result<()> {
         let focused_idx = self.focused_task_idx.lock().await;
-        let mut tasks = self.tasks.lock().await;
-        let mut current_task_idx = self.current_task_idx.lock().await;
+        if let Some(focused_idx) = *focused_idx {
+            let mut tasks = self.tasks.lock().await;
+            let mut current_task_idx = self.current_task_idx.lock().await;
 
-        if *current_task_idx == *focused_idx {
-            *current_task_idx = None;
+            if *current_task_idx == Some(focused_idx) {
+                *current_task_idx = None;
+                self.app_action_tx
+                    .send(AppAction::TaskPane(TaskPaneAppAction::UpdateCurrentTask(
+                        None,
+                    )))
+                    .await?;
+            }
+            tasks[focused_idx] = task;
             self.app_action_tx
-                .send(AppAction::TaskPane(TaskPaneAppAction::UpdateCurrentTask(
-                    None,
+                .send(AppAction::TaskPane(TaskPaneAppAction::UpdateTasks(
+                    tasks.clone(),
                 )))
                 .await?;
         }
+        Ok(())
+    }
 
-        if let Some(focused_idx) = *focused_idx {
-            tasks[focused_idx] = task;
-            self.app_action_tx
-                .send(AppAction::UpdateTaskList {
-                    current_task_idx: *self.current_task_idx.lock().await,
-                    tasks: tasks.clone(),
-                    focused_task_idx: Some(focused_idx),
-                })
-                .await?;
-        }
+    pub async fn insert_task(&self, task: Task) -> Result<()> {
+        let mut focused_idx = self.focused_task_idx.lock().await;
+        let mut tasks = self.tasks.lock().await;
+        let insert_idx = focused_idx.map(|idx| idx + 1).unwrap_or(0);
+        tasks.insert(insert_idx, task);
+        *focused_idx = Some(insert_idx);
+        self.app_action_tx
+            .send(AppAction::TaskPane(TaskPaneAppAction::UpdateTasks(
+                tasks.clone(),
+            )))
+            .await?;
+        self.app_action_tx
+            .send(AppAction::TaskPane(TaskPaneAppAction::UpdateFocusedTask(
+                *focused_idx,
+            )))
+            .await?;
         Ok(())
     }
 

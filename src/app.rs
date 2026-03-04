@@ -153,23 +153,23 @@ impl App {
                 FrontPane::AddTask => match key_evt.code {
                     KeyCode::Enter => {
                         if let Ok(task) = self.task_input.get_task() {
-                            self.clock.add_task(task).await?;
-                            self.front_pane = FrontPane::Clock;
+                            self.task_pane.insert_task(task).await?;
+                            self.front_pane = FrontPane::TaskPane;
                         }
                     }
                     KeyCode::Tab => self.task_input.switch_focus(),
-                    KeyCode::Esc => self.front_pane = FrontPane::Clock,
+                    KeyCode::Esc => self.front_pane = FrontPane::TaskPane,
                     _ => self.task_input.handle_event(evt),
                 },
                 FrontPane::EditTask => match key_evt.code {
                     KeyCode::Enter => {
                         if let Ok(task) = self.task_input.get_task() {
-                            self.clock.replace_focused_task(task).await?;
-                            self.front_pane = FrontPane::Clock;
+                            self.task_pane.replace_focused_task(task).await?;
+                            self.front_pane = FrontPane::TaskPane;
                         }
                     }
                     KeyCode::Tab => self.task_input.switch_focus(),
-                    KeyCode::Esc => self.front_pane = FrontPane::Clock,
+                    KeyCode::Esc => self.front_pane = FrontPane::TaskPane,
                     _ => self.task_input.handle_event(evt),
                 },
                 FrontPane::Help => match key_evt.code {
@@ -182,6 +182,7 @@ impl App {
                     KeyCode::Char('d') => self.task_pane.delete_focused_task().await?,
                     KeyCode::Char('j') => self.task_pane.focus_on_next(1).await?,
                     KeyCode::Char('k') => self.task_pane.focus_on_next(-1).await?,
+                    KeyCode::Esc => self.front_pane = FrontPane::Clock,
                     _ => {}
                 },
             },
