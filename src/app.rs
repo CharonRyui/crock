@@ -12,6 +12,7 @@ use tracing::instrument;
 
 use crate::{
     clock::{Clock, ClockState, Task, error::ClockError},
+    config::get_config_tasks,
     help::HelpPane,
     input::TaskInput,
 };
@@ -58,11 +59,12 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         let (action_tx, action_rx) = mpsc::channel(128);
-        let clock = Arc::new(Clock::new(action_tx));
+        let preset_tasks = get_config_tasks().clone();
+        let (clock, clock_state) = Clock::new(action_tx, preset_tasks);
         Self {
             is_running: true,
-            clock,
-            clock_state: ClockState::default(),
+            clock: Arc::new(clock),
+            clock_state,
             action_rx,
             help_pane: HelpPane,
             front_pane: FrontPane::Main,

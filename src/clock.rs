@@ -15,6 +15,7 @@ use tui_big_text::{BigText, PixelSize};
 use crate::{
     app::AppAction,
     clock::{error::ClockError, timer::Timer},
+    utils::format_time,
 };
 
 pub mod error;
@@ -47,14 +48,21 @@ pub struct Task {
 }
 
 impl Clock {
-    pub fn new(app_action_tx: mpsc::Sender<AppAction>) -> Self {
-        Self {
-            timer: Arc::default(),
-            tasks: Mutex::default(),
-            current_task_idx: Mutex::default(),
-            focused_task_idx: Mutex::default(),
-            app_action_tx,
-        }
+    pub fn new(app_action_tx: mpsc::Sender<AppAction>, tasks: Vec<Task>) -> (Self, ClockState) {
+        (
+            Self {
+                timer: Arc::default(),
+                tasks: Mutex::new(tasks.clone()),
+                current_task_idx: Mutex::default(),
+                focused_task_idx: Mutex::default(),
+                app_action_tx,
+            },
+            ClockState {
+                tasks,
+                is_paused: true,
+                ..Default::default()
+            },
+        )
     }
 
     #[instrument(skip(self))]
@@ -359,21 +367,4 @@ impl Clock {
 
         frame.render_widget(list, layout[1]);
     }
-}
-
-fn format_time(seconds: f64) -> String {
-    let hours = (seconds / 3600.0).floor();
-    let minutes = ((seconds % 3600.0) / 60.0).floor();
-    let seconds = seconds % 60.0;
-    let mut format_str = String::new();
-    if hours > 0.0 {
-        format_str += &format!("{}h", hours as u64);
-    }
-    if minutes > 0.0 {
-        format_str += &format!("{}min", minutes as u64);
-    }
-    if seconds > 0.0 || format_str.is_empty() {
-        format_str += &format!("{}s", seconds);
-    }
-    format_str
 }

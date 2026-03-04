@@ -1,4 +1,4 @@
-use std::{num::ParseFloatError, sync::OnceLock};
+use std::num::ParseFloatError;
 
 use crossterm::event::Event;
 use ratatui::{
@@ -8,14 +8,11 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, Paragraph},
 };
-use regex::Regex;
 use thiserror::Error;
 use tracing::instrument;
 use tui_input::{Input, backend::crossterm::EventHandler};
 
-static TIME_REGEX: OnceLock<Regex> = OnceLock::new();
-
-use crate::clock::Task;
+use crate::{clock::Task, utils::parse_time};
 
 #[derive(Debug, Error)]
 pub enum TaskInputError {
@@ -58,23 +55,8 @@ impl TaskInput {
 
         self.focus = TaskInputFocus::Content;
 
-        let mut seconds = 0.0;
-        if let Some(caps) = time_regex().captures(&time) {
-            if let Some(hour) = caps.get(1) {
-                let hour: f64 = hour.as_str().parse().unwrap_or(0.0);
-                seconds += hour * 3600.0;
-            }
-            if let Some(minute) = caps.get(2) {
-                let minute: f64 = minute.as_str().parse().unwrap_or(0.0);
-                seconds += minute * 60.0;
-            }
-            if let Some(second) = caps.get(3) {
-                let second: f64 = second.as_str().parse().unwrap_or(0.0);
-                seconds += second;
-            }
-        }
-
         let content = content.into();
+        let seconds = parse_time(&time);
 
         Ok(Task { content, seconds })
     }
@@ -167,11 +149,4 @@ impl TaskInput {
             TaskInputFocus::Time => self.time_input.handle_event(&evt),
         };
     }
-}
-
-fn time_regex() -> &'static Regex {
-    TIME_REGEX.get_or_init(|| {
-        Regex::new(r#"(?i)(?:(?P<hour>\d*\.?\d+)h)?(?:(?P<minute>\d*\.?\d+)min)?(?:(?P<second>\d*\.?\d+)s)?"#)
-            .unwrap()
-    })
 }
