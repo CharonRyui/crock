@@ -3,9 +3,10 @@ use std::num::ParseFloatError;
 use crossterm::event::Event;
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Position, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Position, Rect},
     style::{Color, Style, Stylize},
-    text::Line,
+    symbols::border,
+    text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use thiserror::Error;
@@ -43,47 +44,69 @@ pub struct TaskInput {
 impl TaskInput {
     #[instrument(skip(self))]
     pub fn get_task(&mut self) -> Result<Task> {
-        let content = self.content_input.value_and_reset();
+        let content = self.content_input.value().trim().to_string();
         if content.is_empty() {
             return Err(TaskInputError::EmptyContent);
         }
 
-        let time = self.time_input.value_and_reset();
+        let time = self.time_input.value().trim().to_string();
         if time.is_empty() {
             return Err(TaskInputError::EmptyTime);
         }
 
-        self.focus = TaskInputFocus::Content;
-
-        let content = content.into();
         let seconds = parse_time(&time);
 
-        Ok(Task { content, seconds })
+        // Reset inputs only after successful parse
+        self.content_input.reset();
+        self.time_input.reset();
+        self.focus = TaskInputFocus::Content;
+
+        Ok(Task {
+            content: content.into(),
+            seconds,
+        })
     }
 
     #[instrument(skip(self, frame, area))]
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         frame.render_widget(Clear, area);
 
+        let block = Block::bordered()
+            .title(Span::styled(
+                " Task Details ",
+                Style::default().cyan().bold(),
+            ))
+            .border_set(border::ROUNDED)
+            .border_style(Style::default().fg(Color::Indexed(240)));
+
+        frame.render_widget(block, area);
+
+        let inner_area = area.inner(ratatui::layout::Margin {
+            vertical: 1,
+            horizontal: 2,
+        });
+
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(40),
-                Constraint::Percentage(40),
-                Constraint::Percentage(20),
+                Constraint::Length(3), // Content input
+                Constraint::Length(3), // Time input
+                Constraint::Min(0),    // Spacer
+                Constraint::Length(1), // Help footer
             ])
-            .margin(1)
-            .split(area);
+            .split(inner_area);
 
-        let content_style = if self.focus == TaskInputFocus::Content {
-            Style::default().fg(Color::Yellow)
+        // --- 1. Content Input ---
+        let content_focused = self.focus == TaskInputFocus::Content;
+        let content_style = if content_focused {
+            Style::default().fg(Color::Yellow).bold()
         } else {
             Style::default().fg(Color::DarkGray)
         };
 
         let content_block = Block::default()
-            .borders(Borders::ALL)
-            .title(" 1. Task Description ")
+            .borders(Borders::BOTTOM)
+            .title(Span::styled(" Description ", content_style))
             .border_style(content_style);
 
         frame.render_widget(
@@ -91,15 +114,23 @@ impl TaskInput {
             layout[0],
         );
 
-        let time_style = if self.focus == TaskInputFocus::Time {
-            Style::default().fg(Color::Yellow)
+        // --- 2. Time Input ---
+        let time_focused = self.focus == TaskInputFocus::Time;
+        let time_style = if time_focused {
+            Style::default().fg(Color::Yellow).bold()
         } else {
             Style::default().fg(Color::DarkGray)
         };
 
-        let time_title = Line::from(vec!["2. Time".bold(), "(in __h__min__s format)".italic()]);
+        let time_title = Line::from(vec![
+            Span::styled(" Duration ", time_style),
+            Span::styled(
+                "(e.g. 25m, 1h 30m, 45s)",
+                Style::default().fg(Color::Indexed(242)).italic(),
+            ),
+        ]);
         let time_block = Block::default()
-            .borders(Borders::ALL)
+            .borders(Borders::BOTTOM)
             .title(time_title)
             .border_style(time_style);
 
@@ -108,31 +139,29 @@ impl TaskInput {
             layout[1],
         );
 
-        let help_text = Line::from(vec![
-            "<Tab>".bold(),
-            " Switch Focus | ".italic(),
-            "<Enter>".bold(),
-            " Submit | ".italic(),
-            "<Esc>".bold(),
-            " Cancel ".italic(),
+        // --- 3. Footer ---
+        let footer = Line::from(vec![
+            " Tab ".bold().cyan(),
+            "Switch ".into(),
+            " Enter ".bold().cyan(),
+            "Confirm ".into(),
+            " Esc ".bold().cyan(),
+            "Cancel ".into(),
         ])
-        .fg(Color::Indexed(245));
-        frame.render_widget(Paragraph::new(help_text), layout[2]);
+        .alignment(Alignment::Center);
 
-        let active_chunk = if self.focus == TaskInputFocus::Content {
-            layout[0]
+        frame.render_widget(Paragraph::new(footer), layout[3]);
+
+        // Cursor Management
+        let (active_area, active_input) = if content_focused {
+            (layout[0], &self.content_input)
         } else {
-            layout[1]
-        };
-        let active_input = if self.focus == TaskInputFocus::Content {
-            &self.content_input
-        } else {
-            &self.time_input
+            (layout[1], &self.time_input)
         };
 
         frame.set_cursor_position(Position::new(
-            active_chunk.x + active_input.visual_cursor() as u16 + 1,
-            active_chunk.y + 1,
+            active_area.x + active_input.visual_cursor() as u16,
+            active_area.y + 1,
         ));
     }
 

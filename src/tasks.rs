@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use ratatui::{
     Frame,
-    layout::Rect,
-    style::{Color, Modifier, Style},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style, Stylize},
     symbols::border,
-    widgets::{Block, Clear, List, ListItem},
+    text::{Line, Span},
+    widgets::{Block, Clear, List, ListItem, Paragraph},
 };
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc};
@@ -189,77 +190,105 @@ impl TaskPane {
         Ok(())
     }
 
-    pub async fn current_task(&self) -> Option<Task> {
-        let current_task_idx = self.current_task_idx.lock().await;
-        let tasks = self.tasks.lock().await;
-        tasks.get((*current_task_idx)?).cloned()
-    }
-
-    pub async fn next_task(&self) -> Option<Task> {
-        let mut current_task_idx = self.current_task_idx.lock().await;
-        let tasks = self.tasks.lock().await;
-        let next_idx = match *current_task_idx {
-            Some(idx) => (idx + 1).rem_euclid(tasks.len()),
-            None => 0,
-        };
-        *current_task_idx = Some(next_idx);
-        tasks.get(next_idx).cloned()
-    }
-
-    pub async fn get_current_and_next_tasks_to_run(&self) -> Option<(Task, Task)> {
+    pub async fn get_current_and_next_tasks_to_run(&self) -> Result<Option<(Task, Task)>> {
         let mut current_task_idx = self.current_task_idx.lock().await;
         let tasks = self.tasks.lock().await;
         if tasks.is_empty() {
-            None
+            Ok(None)
         } else {
             if current_task_idx.is_none() {
                 *current_task_idx = Some(0);
+                self.app_action_tx
+                    .send(AppAction::TaskPane(TaskPaneAppAction::UpdateCurrentTask(
+                        *current_task_idx,
+                    )))
+                    .await?;
             }
-            let next_idx = (current_task_idx.unwrap() + 1).rem_euclid(tasks.len());
-            Some((
-                tasks[current_task_idx.unwrap()].clone(),
-                tasks[next_idx].clone(),
-            ))
+            let idx = current_task_idx.unwrap();
+            let next_idx = (idx + 1).rem_euclid(tasks.len());
+            Ok(Some((tasks[idx].clone(), tasks[next_idx].clone())))
         }
     }
 
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &TaskPaneState) {
         frame.render_widget(Clear, area);
-        let items: Vec<_> = state
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(1)])
+            .split(area);
+
+        let items: Vec<ListItem> = state
             .tasks
             .iter()
             .enumerate()
             .map(|(i, task)| {
-                let mut style = if Some(i) == state.focused_task_idx {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::REVERSED)
+                let is_focused = Some(i) == state.focused_task_idx;
+                let is_current = Some(i) == state.current_task_idx;
+
+                let (status_icon, status_style) = if is_current {
+                    (" ⏱ ", Style::default().fg(Color::Cyan).bold())
                 } else {
-                    Style::default().fg(Color::Gray)
+                    ("   ", Style::default().fg(Color::DarkGray))
                 };
 
-                if Some(i) == state.current_task_idx {
-                    style = style.fg(Color::Cyan).add_modifier(Modifier::BOLD);
+                let content = Line::from(vec![
+                    Span::styled(status_icon, status_style),
+                    Span::styled(
+                        format!("{:>2}. ", i + 1),
+                        Style::default().fg(Color::Indexed(240)),
+                    ),
+                    Span::styled(
+                        task.content.to_string(),
+                        if is_focused {
+                            Style::default().bold()
+                        } else {
+                            Style::default()
+                        },
+                    ),
+                    Span::styled(
+                        format!(" ({})", format_time(task.seconds)),
+                        Style::default().fg(Color::Indexed(243)).italic(),
+                    ),
+                ]);
+
+                let item = ListItem::new(content);
+                if is_focused {
+                    item.bg(Color::Indexed(235))
+                } else {
+                    item
                 }
-                let content = format!(
-                    " [{}] {} ({})",
-                    i + 1,
-                    task.content,
-                    format_time(task.seconds)
-                );
-                ListItem::new(content).style(style)
             })
             .collect();
 
-        let list = List::new(items)
-            .block(
-                Block::bordered()
-                    .title("Task List")
-                    .border_set(border::ROUNDED),
-            )
-            .highlight_symbol(">> ");
+        let list_block = Block::bordered()
+            .title(Span::styled(" Task List ", Style::default().cyan().bold()))
+            .border_set(border::ROUNDED)
+            .border_style(Style::default().fg(Color::Indexed(240)));
 
-        frame.render_widget(list, area);
+        let list = List::new(items)
+            .block(list_block)
+            .highlight_symbol("❯ ")
+            .highlight_style(Style::default().fg(Color::Yellow).bold());
+
+        frame.render_widget(list, layout[0]);
+
+        let footer = Line::from(vec![
+            " a ".bold().cyan(),
+            "Add ".into(),
+            " r ".bold().cyan(),
+            "Edit ".into(),
+            " d ".bold().cyan(),
+            "Del ".into(),
+            " Enter ".bold().cyan(),
+            "Run ".into(),
+            " Esc ".bold().cyan(),
+            "Back ".into(),
+        ]);
+        frame.render_widget(
+            Paragraph::new(footer).alignment(ratatui::layout::Alignment::Center),
+            layout[1],
+        );
     }
 }
 

@@ -97,7 +97,7 @@ impl App {
             }
 
             if let Some((current_task, next_task)) =
-                self.task_pane.get_current_and_next_tasks_to_run().await
+                self.task_pane.get_current_and_next_tasks_to_run().await?
             {
                 self.clock_state.current_task = Some(current_task.clone());
                 self.clock_state.next_task = Some(next_task);
@@ -135,6 +135,7 @@ impl App {
                     KeyCode::Char('r') => {
                         if let Some(task) = self.clock_state.current_task.clone() {
                             let clock = self.clock.clone();
+                            self.clock_state.is_paused = false;
                             tokio::spawn(async move {
                                 let _ = clock.run_task(task).await;
                             });
@@ -226,12 +227,6 @@ impl App {
             AppAction::TaskPane(task_pane_app_action) => match task_pane_app_action {
                 TaskPaneAppAction::UpdateTasks(tasks) => {
                     self.task_pane_state.tasks = tasks;
-                    if let Some((current_task, next_task)) =
-                        self.task_pane.get_current_and_next_tasks_to_run().await
-                    {
-                        self.clock_state.current_task = Some(current_task);
-                        self.clock_state.next_task = Some(next_task);
-                    }
                 }
                 TaskPaneAppAction::UpdateCurrentTask(task) => {
                     self.clock.kill_current_task().await?;
