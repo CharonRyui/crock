@@ -1,0 +1,7 @@
+[[tasks]]
+desc = "sit"
+time = "30min"
+
+[[tasks]]
+desc = "stand"
+time = "15min1.1s"
