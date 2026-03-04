@@ -175,6 +175,7 @@ impl App {
                     KeyCode::Char('d') => self.task_pane.delete_focused_task().await?,
                     KeyCode::Char('j') => self.task_pane.focus_on_next(1).await?,
                     KeyCode::Char('k') => self.task_pane.focus_on_next(-1).await?,
+                    KeyCode::Char('q') => self.front_pane = FrontPane::Clock,
                     KeyCode::Esc => self.front_pane = FrontPane::Clock,
                     _ => {}
                 },
@@ -195,6 +196,7 @@ impl App {
                 }
                 ClockAppAction::TimerFinished(task) => {
                     self.clock_state.seconds_left = None;
+                    self.clock_state.is_paused = true;
                     if let Some(task) = task {
                         Notification::new()
                             .appname("crock")
@@ -207,16 +209,17 @@ impl App {
                             .summary("Crock Task Time Ends")
                             .show_async()
                             .await?;
-                    }
-                    self.task_pane.finish_current_task().await;
-                    if let Some((current_task, next_task)) =
-                        self.task_pane.get_current_and_next_tasks_to_run().await
-                    {
-                        self.clock_state.current_task = Some(current_task.clone());
-                        self.clock_state.next_task = Some(next_task);
-                    } else {
-                        self.clock_state.current_task = None;
-                        self.clock_state.next_task = None;
+
+                        self.task_pane.finish_current_task().await;
+                        if let Some((current_task, next_task)) =
+                            self.task_pane.get_current_and_next_tasks_to_run().await
+                        {
+                            self.clock_state.current_task = Some(current_task.clone());
+                            self.clock_state.next_task = Some(next_task);
+                        } else {
+                            self.clock_state.current_task = None;
+                            self.clock_state.next_task = None;
+                        }
                     }
                 }
             },
