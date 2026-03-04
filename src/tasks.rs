@@ -155,6 +155,40 @@ impl TaskPane {
         Ok(())
     }
 
+    pub async fn current_task(&self) -> Option<Task> {
+        let current_task_idx = self.current_task_idx.lock().await;
+        let tasks = self.tasks.lock().await;
+        tasks.get((*current_task_idx)?).cloned()
+    }
+
+    pub async fn next_task(&self) -> Option<Task> {
+        let mut current_task_idx = self.current_task_idx.lock().await;
+        let tasks = self.tasks.lock().await;
+        let next_idx = match *current_task_idx {
+            Some(idx) => (idx + 1).rem_euclid(tasks.len()),
+            None => 0,
+        };
+        *current_task_idx = Some(next_idx);
+        tasks.get(next_idx).cloned()
+    }
+
+    pub async fn get_current_and_next_tasks_to_run(&self) -> Option<(Task, Task)> {
+        let mut current_task_idx = self.current_task_idx.lock().await;
+        let tasks = self.tasks.lock().await;
+        if tasks.is_empty() {
+            None
+        } else {
+            if current_task_idx.is_none() {
+                *current_task_idx = Some(0);
+            }
+            let next_idx = (current_task_idx.unwrap() + 1).rem_euclid(tasks.len());
+            Some((
+                tasks[current_task_idx.unwrap()].clone(),
+                tasks[next_idx].clone(),
+            ))
+        }
+    }
+
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &TaskPaneState) {
         let items: Vec<_> = state
             .tasks
