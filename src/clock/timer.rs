@@ -14,13 +14,8 @@ pub struct Timer {
 }
 
 impl Timer {
-    #[instrument(skip(self, on_tick, on_finish))]
-    pub async fn run<T: Fn(f64) + Send + 'static, F: FnOnce() + Send + 'static>(
-        &self,
-        seconds: f64,
-        on_tick: T,
-        on_finish: F,
-    ) -> Result<()> {
+    #[instrument(skip(self, on_tick))]
+    pub async fn run<T: Fn(f64) + Send + 'static>(&self, seconds: f64, on_tick: T) -> Result<()> {
         {
             let mut left_seconds = self.left_seconds.lock().await;
             if *left_seconds > 0.0 {
@@ -31,24 +26,19 @@ impl Timer {
 
         self.continue_run().await;
         loop {
-            {
-                if !*self.is_running.lock().await {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                    continue;
-                }
+            // timer status should be locked before sleep ends
+            if !*self.is_running.lock().await {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                continue;
             }
-
-            {
-                let mut left_seconds = self.left_seconds.lock().await;
-                if *left_seconds <= 0.0 {
-                    self.pause_run().await;
-                    on_finish();
-                    break;
-                }
-                *left_seconds -= 1.0;
-                on_tick(*left_seconds);
+            let mut left_seconds = self.left_seconds.lock().await;
+            if *left_seconds <= 0.0 {
+                self.pause_run().await;
+                break;
             }
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            *left_seconds -= 0.05;
+            on_tick(*left_seconds);
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
         Ok(())
     }

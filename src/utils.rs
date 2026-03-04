@@ -42,7 +42,7 @@ pub fn format_time(seconds: f64) -> String {
         format_str += &format!("{}min", minutes as u64);
     }
     if seconds > 0.0 || format_str.is_empty() {
-        format_str += &format!("{}s", seconds);
+        format_str += &format!("{}s", seconds as u64);
     }
     format_str
 }

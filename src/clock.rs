@@ -109,7 +109,7 @@ impl Clock {
             .send(AppAction::ClockTimerPauseToggle(false))
             .await?;
         let timer = self.timer.clone();
-        timer.run(task_seconds, on_tick, || {}).await?;
+        timer.run(task_seconds, on_tick).await?;
 
         let mut task_id = self.current_task_idx.lock().await;
         let tasks = self.tasks.lock().await;
