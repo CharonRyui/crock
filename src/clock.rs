@@ -128,22 +128,6 @@ impl Clock {
         Ok(())
     }
 
-    #[instrument(skip(self))]
-    pub async fn add_task(&self, task: Task) -> Result<()> {
-        let mut tasks = self.tasks.lock().await;
-        let mut focused_task_idx = self.focused_task_idx.lock().await;
-        *focused_task_idx = Some(focused_task_idx.map(|i| i + 1).unwrap_or(0));
-        tasks.insert((*focused_task_idx).unwrap(), task);
-        self.app_action_tx
-            .send(AppAction::UpdateTaskList {
-                current_task_idx: *self.current_task_idx.lock().await,
-                tasks: tasks.clone(),
-                focused_task_idx: *focused_task_idx,
-            })
-            .await?;
-        Ok(())
-    }
-
     pub async fn run_focused(&self) -> Result<()> {
         {
             self.kill_current_task().await?;
@@ -182,73 +166,6 @@ impl Clock {
         self.app_action_tx
             .send(AppAction::ClockTimerFinish { task: None })
             .await?;
-        Ok(())
-    }
-
-    pub async fn focus_next(&self, offset: isize) -> Result<()> {
-        let mut focused_task_idx = self.focused_task_idx.lock().await;
-        let tasks = self.tasks.lock().await;
-        let current_task_idx = self.current_task_idx.lock().await;
-        let idx = if focused_task_idx.is_none() {
-            0
-        } else {
-            (focused_task_idx.unwrap() as isize + offset) as usize % tasks.len()
-        };
-        *focused_task_idx = Some(idx);
-        self.app_action_tx
-            .send(AppAction::UpdateTaskList {
-                current_task_idx: *current_task_idx,
-                tasks: tasks.clone(),
-                focused_task_idx: *focused_task_idx,
-            })
-            .await?;
-        Ok(())
-    }
-
-    pub async fn delete_focused_task(&self) -> Result<()> {
-        let mut tasks = self.tasks.lock().await;
-        let mut focused_task_idx = self.focused_task_idx.lock().await;
-        let mut current_task_idx = self.current_task_idx.lock().await;
-        if let Some(focused_idx) = *focused_task_idx {
-            tasks.remove(focused_idx);
-            if Some(focused_idx) == *current_task_idx {
-                *current_task_idx = None;
-                self.kill_current_task().await?;
-                self.app_action_tx
-                    .send(AppAction::ClockTimerFinish { task: None })
-                    .await?;
-            }
-            if focused_idx >= tasks.len() {
-                *focused_task_idx = Some(tasks.len().saturating_sub(1));
-            }
-            self.app_action_tx
-                .send(AppAction::UpdateTaskList {
-                    current_task_idx: *current_task_idx,
-                    tasks: tasks.clone(),
-                    focused_task_idx: *focused_task_idx,
-                })
-                .await?;
-        }
-        Ok(())
-    }
-
-    pub async fn replace_focused_task(&self, task: Task) -> Result<()> {
-        let mut tasks = self.tasks.lock().await;
-        let focused_task_idx = self.focused_task_idx.lock().await;
-        let current_task_idx = self.current_task_idx.lock().await;
-        if let Some(focused_idx) = *focused_task_idx {
-            tasks[focused_idx] = task;
-            if Some(focused_idx) == *current_task_idx {
-                self.kill_current_task().await?;
-            }
-            self.app_action_tx
-                .send(AppAction::UpdateTaskList {
-                    current_task_idx: *current_task_idx,
-                    tasks: tasks.clone(),
-                    focused_task_idx: *focused_task_idx,
-                })
-                .await?;
-        }
         Ok(())
     }
 

@@ -140,13 +140,9 @@ impl App {
                             let _ = clock.run_next_task().await;
                         });
                     }
-                    KeyCode::Char('a') => self.front_pane = FrontPane::AddTask,
                     KeyCode::Char('?') => self.front_pane = FrontPane::Help,
                     KeyCode::Char('p') => self.clock.toggle_pause().await?,
                     KeyCode::Char('t') => self.clock.kill_current_task().await?,
-                    KeyCode::Char('j') => self.clock.focus_next(1).await?,
-                    KeyCode::Char('k') => self.clock.focus_next(-1).await?,
-                    KeyCode::Char('d') => self.clock.delete_focused_task().await?,
                     KeyCode::Char('e') => self.front_pane = FrontPane::TaskPane,
                     _ => {}
                 },
