@@ -55,6 +55,26 @@ impl TaskPane {
         )
     }
 
+    pub async fn finish_current_task(&self) {
+        let mut current_task_idx = self.current_task_idx.lock().await;
+        let tasks = self.tasks.lock().await;
+        if tasks.is_empty() {
+            *current_task_idx = None;
+        } else {
+            let next_idx = match *current_task_idx {
+                Some(idx) => (idx + 1).rem_euclid(tasks.len()),
+                None => 0,
+            };
+            *current_task_idx = Some(next_idx);
+            self.app_action_tx
+                .send(AppAction::TaskPane(TaskPaneAppAction::UpdateCurrentTask(
+                    *current_task_idx,
+                )))
+                .await
+                .ok();
+        }
+    }
+
     pub async fn replace_focused_task(&self, task: Task) -> Result<()> {
         let focused_idx = self.focused_task_idx.lock().await;
         if let Some(focused_idx) = *focused_idx {

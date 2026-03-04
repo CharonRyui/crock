@@ -74,7 +74,7 @@ impl Clock {
         self.timer.run(task.seconds, on_tick).await?;
 
         self.app_action_tx
-            .send(AppAction::Clock(ClockAppAction::TimerFinished))
+            .send(AppAction::Clock(ClockAppAction::TimerFinished(Some(task))))
             .await?;
 
         Ok(())
@@ -91,7 +91,7 @@ impl Clock {
     pub async fn kill_current_task(&self) -> Result<()> {
         self.timer.stop_run().await;
         self.app_action_tx
-            .send(AppAction::Clock(ClockAppAction::TimerFinished))
+            .send(AppAction::Clock(ClockAppAction::TimerFinished(None)))
             .await?;
         Ok(())
     }
@@ -128,7 +128,7 @@ impl Clock {
                     1.0
                 };
 
-                let color = if state.is_paused {
+                let color = if !state.is_paused {
                     Color::Red
                 } else {
                     Color::Cyan

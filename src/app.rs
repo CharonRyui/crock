@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crossterm::event::{Event, EventStream, KeyCode};
 use futures::{FutureExt, StreamExt};
+use notify_rust::Notification;
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -16,6 +17,7 @@ use crate::{
     help::HelpPane,
     input::TaskInput,
     tasks::{Task, TaskPane, TaskPaneState},
+    utils::format_time,
 };
 
 type Result<T> = std::result::Result<T, AppError>;
@@ -40,12 +42,13 @@ pub enum TaskPaneAppAction {
     UpdateTasks(Vec<Task>),
     UpdateCurrentTask(Option<usize>),
     UpdateFocusedTask(Option<usize>),
+    InterruptCurrentTask,
 }
 
 #[derive(Debug)]
 pub enum ClockAppAction {
     UpdateSecondsLeft(f64),
-    TimerFinished,
+    TimerFinished(Option<Task>),
 }
 
 #[derive(Debug)]
@@ -125,11 +128,17 @@ impl App {
                         {
                             self.clock_state.current_task = Some(current_task.clone());
                             self.clock_state.next_task = Some(next_task);
-                            self.clock.run_task(current_task).await?;
+                            let clock = self.clock.clone();
+                            tokio::spawn(async move {
+                                let _ = clock.run_task(current_task).await;
+                            });
                         }
                     }
                     KeyCode::Char('?') => self.front_pane = FrontPane::Help,
-                    KeyCode::Char('p') => self.clock.toggle_pause().await,
+                    KeyCode::Char('p') => {
+                        self.clock.toggle_pause().await;
+                        self.clock_state.is_paused = !self.clock_state.is_paused
+                    }
                     KeyCode::Char('t') => self.clock.kill_current_task().await?,
                     KeyCode::Char('e') => self.front_pane = FrontPane::TaskPane,
                     _ => {}
@@ -181,11 +190,49 @@ impl App {
     async fn handle_action(&mut self, action: AppAction) -> Result<()> {
         match action {
             AppAction::Clock(clock_app_action) => match clock_app_action {
-                ClockAppAction::UpdateSecondsLeft(_) => todo!(),
-                ClockAppAction::TimerFinished => todo!(),
+                ClockAppAction::UpdateSecondsLeft(seconds_left) => {
+                    self.clock_state.seconds_left = Some(seconds_left)
+                }
+                ClockAppAction::TimerFinished(task) => {
+                    self.clock_state.seconds_left = None;
+                    if let Some(task) = task {
+                        Notification::new()
+                            .appname("crock")
+                            .body(&format!(
+                                "Task: {} is finished, you've been on it for {}",
+                                task.content,
+                                format_time(task.seconds)
+                            ))
+                            .icon("alarm-clock")
+                            .summary("Crock Task Time Ends")
+                            .show_async()
+                            .await?;
+                    }
+                    self.task_pane.finish_current_task().await;
+                    if let Some((current_task, next_task)) =
+                        self.task_pane.get_current_and_next_tasks_to_run().await
+                    {
+                        self.clock_state.current_task = Some(current_task.clone());
+                        self.clock_state.next_task = Some(next_task);
+                    } else {
+                        self.clock_state.current_task = None;
+                        self.clock_state.next_task = None;
+                    }
+                }
             },
             AppAction::TaskPane(task_pane_app_action) => match task_pane_app_action {
-                TaskPaneAppAction::UpdateTasks(tasks) => self.task_pane_state.tasks = tasks,
+                TaskPaneAppAction::UpdateTasks(tasks) => {
+                    self.task_pane_state.tasks = tasks;
+                    if let Some((current_task, next_task)) =
+                        self.task_pane.get_current_and_next_tasks_to_run().await
+                    {
+                        self.clock_state.current_task = Some(current_task);
+                        self.clock_state.next_task = Some(next_task);
+                    }
+                }
+                TaskPaneAppAction::InterruptCurrentTask => {
+                    self.clock.kill_current_task().await?;
+                }
                 TaskPaneAppAction::UpdateCurrentTask(task) => {
                     self.task_pane_state.current_task_idx = task
                 }
