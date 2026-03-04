@@ -8,6 +8,7 @@ pub mod config;
 pub mod help;
 pub mod input;
 pub mod logger;
+pub mod tasks;
 pub mod utils;
 
 pub fn application(terminal: &mut DefaultTerminal) -> Result<(), AppError> {
