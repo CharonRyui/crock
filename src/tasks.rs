@@ -5,7 +5,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     symbols::border,
-    widgets::{Block, List, ListItem},
+    widgets::{Block, Clear, List, ListItem},
 };
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc};
@@ -224,6 +224,7 @@ impl TaskPane {
     }
 
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &TaskPaneState) {
+        frame.render_widget(Clear, area);
         let items: Vec<_> = state
             .tasks
             .iter()

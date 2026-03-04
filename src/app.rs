@@ -254,14 +254,14 @@ impl App {
             }
             FrontPane::AddTask | FrontPane::EditTask => self
                 .task_input
-                .render(frame, centered_rect(60, 20, frame.area())),
+                .render(frame, centered_rect(40, 40, frame.area())),
             FrontPane::Help => self
                 .help_pane
                 .render(frame, centered_rect(60, 60, frame.area())),
             FrontPane::TaskPane => {
                 self.task_pane.render_with_state(
                     frame,
-                    centered_rect(60, 60, frame.area()),
+                    centered_rect(80, 80, frame.area()),
                     &self.task_pane_state,
                 );
             }
