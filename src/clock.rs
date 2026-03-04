@@ -8,7 +8,7 @@ use ratatui::{
     text::Span,
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
 };
-use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::sync::{Mutex, mpsc};
 use tracing::instrument;
 use tui_big_text::{BigText, PixelSize};
 
@@ -100,11 +100,6 @@ impl Clock {
             });
         };
 
-        let (finish_tx, finish_rx) = oneshot::channel();
-        let on_finish = move || {
-            let _ = finish_tx.send(true);
-        };
-
         self.app_action_tx
             .send(AppAction::UpdateClockProgress {
                 seconds_left: task_seconds,
@@ -114,25 +109,21 @@ impl Clock {
             .send(AppAction::ClockTimerPauseToggle(false))
             .await?;
         let timer = self.timer.clone();
-        tokio::spawn(async move {
-            let _ = timer.run(task_seconds, on_tick, on_finish).await;
-        });
+        timer.run(task_seconds, on_tick, || {}).await?;
 
-        if Ok(true) == finish_rx.await {
-            let mut task_id = self.current_task_idx.lock().await;
-            let tasks = self.tasks.lock().await;
-            *task_id = task_id.map(|id| (id + 1) % tasks.len());
-            let mut focused_task_idx = self.focused_task_idx.lock().await;
-            *focused_task_idx = *task_id;
-            self.app_action_tx
-                .send(AppAction::UpdateTaskList {
-                    current_task_idx: *task_id,
-                    tasks: tasks.clone(),
-                    focused_task_idx: *focused_task_idx,
-                })
-                .await?;
-            self.app_action_tx.send(AppAction::ClockTimerFinish).await?;
-        }
+        let mut task_id = self.current_task_idx.lock().await;
+        let tasks = self.tasks.lock().await;
+        *task_id = task_id.map(|id| (id + 1) % tasks.len());
+        let mut focused_task_idx = self.focused_task_idx.lock().await;
+        *focused_task_idx = *task_id;
+        self.app_action_tx
+            .send(AppAction::UpdateTaskList {
+                current_task_idx: *task_id,
+                tasks: tasks.clone(),
+                focused_task_idx: *focused_task_idx,
+            })
+            .await?;
+        self.app_action_tx.send(AppAction::ClockTimerFinish).await?;
 
         Ok(())
     }
@@ -155,6 +146,7 @@ impl Clock {
 
     pub async fn run_focused(&self) -> Result<()> {
         {
+            self.kill_current_task().await?;
             let mut running_task_id = self.current_task_idx.lock().await;
             let focused_task_idx = self.focused_task_idx.lock().await;
             *running_task_id = *focused_task_idx;

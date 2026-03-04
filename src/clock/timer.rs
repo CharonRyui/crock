@@ -38,14 +38,16 @@ impl Timer {
                 }
             }
 
-            let mut left_seconds = self.left_seconds.lock().await;
-            if *left_seconds <= 0.0 {
-                self.pause_run().await;
-                on_finish();
-                break;
+            {
+                let mut left_seconds = self.left_seconds.lock().await;
+                if *left_seconds <= 0.0 {
+                    self.pause_run().await;
+                    on_finish();
+                    break;
+                }
+                *left_seconds -= 1.0;
+                on_tick(*left_seconds);
             }
-            *left_seconds -= 1.0;
-            on_tick(*left_seconds);
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
         Ok(())
