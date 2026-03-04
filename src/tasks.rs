@@ -8,7 +8,11 @@ use ratatui::{
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc};
 
-use crate::{app::AppAction, clock::Task, utils::format_time};
+use crate::{
+    app::{AppAction, TaskPaneAppAction},
+    clock::Task,
+    utils::format_time,
+};
 
 type Result<T> = std::result::Result<T, TasksError>;
 
@@ -28,9 +32,36 @@ pub struct TaskPane {
 }
 
 impl TaskPane {
+    pub fn new(app_action_tx: mpsc::Sender<AppAction>, tasks: Vec<Task>) -> (Self, TaskPaneState) {
+        (
+            Self {
+                tasks: Mutex::new(tasks.clone()),
+                current_task_idx: Mutex::default(),
+                focused_task_idx: Mutex::default(),
+                app_action_tx,
+            },
+            TaskPaneState {
+                tasks,
+                current_task_idx: None,
+                focused_task_idx: None,
+            },
+        )
+    }
+
     pub async fn replace_focused_task(&self, task: Task) -> Result<()> {
         let focused_idx = self.focused_task_idx.lock().await;
         let mut tasks = self.tasks.lock().await;
+        let mut current_task_idx = self.current_task_idx.lock().await;
+
+        if *current_task_idx == *focused_idx {
+            *current_task_idx = None;
+            self.app_action_tx
+                .send(AppAction::TaskPane(TaskPaneAppAction::UpdateCurrentTask(
+                    None,
+                )))
+                .await?;
+        }
+
         if let Some(focused_idx) = *focused_idx {
             tasks[focused_idx] = task;
             self.app_action_tx
@@ -56,13 +87,48 @@ impl TaskPane {
             };
             *focused_idx = Some(next_idx);
             self.app_action_tx
-                .send(AppAction::UpdateTaskList {
-                    current_task_idx: *self.current_task_idx.lock().await,
-                    tasks: tasks.clone(),
-                    focused_task_idx: Some(next_idx),
-                })
+                .send(AppAction::TaskPane(TaskPaneAppAction::UpdateFocusedTask(
+                    *focused_idx,
+                )))
                 .await?;
         }
+        Ok(())
+    }
+
+    pub async fn delete_focused_task(&self) -> Result<()> {
+        let mut focused_idx_guard = self.focused_task_idx.lock().await;
+        let mut tasks = self.tasks.lock().await;
+        let mut current_task_idx_guard = self.current_task_idx.lock().await;
+
+        if *current_task_idx_guard == *focused_idx_guard {
+            *current_task_idx_guard = None;
+            self.app_action_tx
+                .send(AppAction::TaskPane(TaskPaneAppAction::UpdateCurrentTask(
+                    None,
+                )))
+                .await?;
+        }
+
+        if let Some(focused_idx) = *focused_idx_guard {
+            tasks.remove(focused_idx);
+            let new_focused_idx = if tasks.is_empty() {
+                None
+            } else {
+                Some(focused_idx.min(tasks.len() - 1))
+            };
+            *focused_idx_guard = new_focused_idx;
+            self.app_action_tx
+                .send(AppAction::TaskPane(TaskPaneAppAction::UpdateFocusedTask(
+                    new_focused_idx,
+                )))
+                .await?;
+            self.app_action_tx
+                .send(AppAction::TaskPane(TaskPaneAppAction::UpdateTasks(
+                    tasks.clone(),
+                )))
+                .await?;
+        }
+
         Ok(())
     }
 

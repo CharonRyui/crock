@@ -12,10 +12,11 @@ use tokio::{select, sync::mpsc};
 use tracing::instrument;
 
 use crate::{
-    clock::{Clock, ClockState, Task, error::ClockError},
+    clock::{Clock, ClockState, Task},
     config::get_config_tasks,
     help::HelpPane,
     input::TaskInput,
+    tasks::{TaskPane, TaskPaneState},
     utils::format_time,
 };
 
@@ -23,9 +24,10 @@ type Result<T> = std::result::Result<T, AppError>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FrontPane {
-    Main,
+    Clock,
     AddTask,
     EditTask,
+    TaskPane,
     Help,
 }
 
@@ -45,16 +47,27 @@ pub enum AppAction {
     ClockTimerPauseToggle {
         is_paused: bool,
     },
+    TaskPane(TaskPaneAppAction),
+}
+
+#[derive(Debug)]
+pub enum TaskPaneAppAction {
+    UpdateTasks(Vec<Task>),
+    UpdateCurrentTask(Option<usize>),
+    UpdateFocusedTask(Option<usize>),
 }
 
 #[derive(Debug)]
 pub struct App {
     is_running: bool,
 
+    front_pane: FrontPane,
+
+    task_pane: TaskPane,
+    task_pane_state: TaskPaneState,
+
     clock: Arc<Clock>,
     clock_state: ClockState,
-
-    front_pane: FrontPane,
 
     task_input: TaskInput,
     help_pane: HelpPane,
@@ -66,14 +79,17 @@ impl Default for App {
     fn default() -> Self {
         let (action_tx, action_rx) = mpsc::channel(128);
         let preset_tasks = get_config_tasks().clone();
-        let (clock, clock_state) = Clock::new(action_tx, preset_tasks);
+        let (clock, clock_state) = Clock::new(action_tx.clone(), preset_tasks.clone());
+        let (task_pane, task_pane_state) = TaskPane::new(action_tx, preset_tasks);
         Self {
             is_running: true,
             clock: Arc::new(clock),
             clock_state,
+            task_pane_state,
+            task_pane,
             action_rx,
             help_pane: HelpPane,
-            front_pane: FrontPane::Main,
+            front_pane: FrontPane::Clock,
             task_input: TaskInput::default(),
         }
     }
@@ -110,7 +126,7 @@ impl App {
             Event::FocusGained => todo!(),
             Event::FocusLost => todo!(),
             Event::Key(key_evt) => match self.front_pane {
-                FrontPane::Main => match key_evt.code {
+                FrontPane::Clock => match key_evt.code {
                     KeyCode::Char('q') => self.is_running = false,
                     KeyCode::Char('r') => {
                         let clock = self.clock.clone();
@@ -131,37 +147,41 @@ impl App {
                     KeyCode::Char('j') => self.clock.focus_next(1).await?,
                     KeyCode::Char('k') => self.clock.focus_next(-1).await?,
                     KeyCode::Char('d') => self.clock.delete_focused_task().await?,
-                    KeyCode::Char('e') => {
-                        if self.clock_state.focused_task.is_some() {
-                            self.front_pane = FrontPane::EditTask
-                        }
-                    }
+                    KeyCode::Char('e') => self.front_pane = FrontPane::TaskPane,
                     _ => {}
                 },
                 FrontPane::AddTask => match key_evt.code {
                     KeyCode::Enter => {
                         if let Ok(task) = self.task_input.get_task() {
                             self.clock.add_task(task).await?;
-                            self.front_pane = FrontPane::Main;
+                            self.front_pane = FrontPane::Clock;
                         }
                     }
                     KeyCode::Tab => self.task_input.switch_focus(),
-                    KeyCode::Esc => self.front_pane = FrontPane::Main,
+                    KeyCode::Esc => self.front_pane = FrontPane::Clock,
                     _ => self.task_input.handle_event(evt),
                 },
                 FrontPane::EditTask => match key_evt.code {
                     KeyCode::Enter => {
                         if let Ok(task) = self.task_input.get_task() {
                             self.clock.replace_focused_task(task).await?;
-                            self.front_pane = FrontPane::Main;
+                            self.front_pane = FrontPane::Clock;
                         }
                     }
                     KeyCode::Tab => self.task_input.switch_focus(),
-                    KeyCode::Esc => self.front_pane = FrontPane::Main,
+                    KeyCode::Esc => self.front_pane = FrontPane::Clock,
                     _ => self.task_input.handle_event(evt),
                 },
                 FrontPane::Help => match key_evt.code {
-                    KeyCode::Esc | KeyCode::Char('?') => self.front_pane = FrontPane::Main,
+                    KeyCode::Esc | KeyCode::Char('?') => self.front_pane = FrontPane::Clock,
+                    _ => {}
+                },
+                FrontPane::TaskPane => match key_evt.code {
+                    KeyCode::Char('a') => self.front_pane = FrontPane::AddTask,
+                    KeyCode::Char('e') => self.front_pane = FrontPane::EditTask,
+                    KeyCode::Char('d') => self.task_pane.delete_focused_task().await?,
+                    KeyCode::Char('j') => self.task_pane.focus_on_next(1).await?,
+                    KeyCode::Char('k') => self.task_pane.focus_on_next(-1).await?,
                     _ => {}
                 },
             },
@@ -206,23 +226,39 @@ impl App {
             AppAction::ClockTimerPauseToggle { is_paused } => {
                 self.clock_state.is_paused = is_paused
             }
+            AppAction::TaskPane(task_pane_app_action) => match task_pane_app_action {
+                TaskPaneAppAction::UpdateTasks(tasks) => self.task_pane_state.tasks = tasks,
+                TaskPaneAppAction::UpdateCurrentTask(task) => {
+                    self.task_pane_state.current_task_idx = task
+                }
+                TaskPaneAppAction::UpdateFocusedTask(task) => {
+                    self.task_pane_state.focused_task_idx = task
+                }
+            },
         };
         Ok(())
     }
 
     #[instrument(skip(self, frame))]
     fn draw(&mut self, frame: &mut Frame) {
-        self.clock
-            .render_with_state(frame, frame.area(), &self.clock_state);
-
         match self.front_pane {
-            FrontPane::Main => {}
+            FrontPane::Clock => {
+                self.clock
+                    .render_with_state(frame, frame.area(), &self.clock_state);
+            }
             FrontPane::AddTask | FrontPane::EditTask => self
                 .task_input
                 .render(frame, centered_rect(60, 20, frame.area())),
             FrontPane::Help => self
                 .help_pane
                 .render(frame, centered_rect(60, 60, frame.area())),
+            FrontPane::TaskPane => {
+                self.task_pane.render_with_state(
+                    frame,
+                    centered_rect(60, 60, frame.area()),
+                    &self.task_pane_state,
+                );
+            }
         }
     }
 }
@@ -232,7 +268,9 @@ pub enum AppError {
     #[error("fail to draw app")]
     DrawFail,
     #[error("clock error: {0}")]
-    ClockError(#[from] ClockError),
+    ClockError(#[from] crate::clock::error::ClockError),
+    #[error("task pane error: {0}")]
+    TaskPaneError(#[from] crate::tasks::TasksError),
     #[error("notification error: {0}")]
     NotificationError(#[from] notify_rust::error::Error),
 }
