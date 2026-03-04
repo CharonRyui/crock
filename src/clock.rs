@@ -15,6 +15,7 @@ use tui_big_text::{BigText, PixelSize};
 use crate::{
     app::AppAction,
     clock::{error::ClockError, timer::Timer},
+    tasks::Task,
     utils::format_time,
 };
 
@@ -39,12 +40,6 @@ pub struct Clock {
     current_task_idx: Mutex<Option<usize>>,
     app_action_tx: mpsc::Sender<AppAction>,
     focused_task_idx: Mutex<Option<usize>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Task {
-    pub content: Arc<str>,
-    pub seconds: f64,
 }
 
 impl Clock {

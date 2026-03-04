@@ -12,11 +12,11 @@ use tokio::{select, sync::mpsc};
 use tracing::instrument;
 
 use crate::{
-    clock::{Clock, ClockState, Task},
+    clock::{Clock, ClockState},
     config::get_config_tasks,
     help::HelpPane,
     input::TaskInput,
-    tasks::{TaskPane, TaskPaneState},
+    tasks::{Task, TaskPane, TaskPaneState},
     utils::format_time,
 };
 

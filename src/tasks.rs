@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ratatui::{
     Frame,
     layout::Rect,
@@ -10,11 +12,16 @@ use tokio::sync::{Mutex, mpsc};
 
 use crate::{
     app::{AppAction, TaskPaneAppAction},
-    clock::Task,
     utils::format_time,
 };
 
 type Result<T> = std::result::Result<T, TasksError>;
+
+#[derive(Debug, Clone)]
+pub struct Task {
+    pub content: Arc<str>,
+    pub seconds: f64,
+}
 
 #[derive(Debug)]
 pub struct TaskPaneState {

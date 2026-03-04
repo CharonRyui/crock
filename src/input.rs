@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::instrument;
 use tui_input::{Input, backend::crossterm::EventHandler};
 
-use crate::{clock::Task, utils::parse_time};
+use crate::{tasks::Task, utils::parse_time};
 
 #[derive(Debug, Error)]
 pub enum TaskInputError {

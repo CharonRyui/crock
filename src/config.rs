@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use serde::Deserialize;
 
-use crate::{clock::Task, utils::parse_time};
+use crate::{tasks::Task, utils::parse_time};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
