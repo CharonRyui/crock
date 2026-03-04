@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crossterm::event::{Event, EventStream, KeyCode};
 use futures::{FutureExt, StreamExt};
+use notify_rust::Notification;
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -15,6 +16,7 @@ use crate::{
     config::get_config_tasks,
     help::HelpPane,
     input::TaskInput,
+    utils::format_time,
 };
 
 type Result<T> = std::result::Result<T, AppError>;
@@ -37,8 +39,12 @@ pub enum AppAction {
         tasks: Vec<Task>,
         focused_task_idx: Option<usize>,
     },
-    ClockTimerFinish,
-    ClockTimerPauseToggle(bool),
+    ClockTimerFinish {
+        task: Option<Task>,
+    },
+    ClockTimerPauseToggle {
+        is_paused: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -92,7 +98,7 @@ impl App {
                         self.handle_event(e).await?;
                     }
                 }
-                Some(action) = self.action_rx.recv() => self.handle_action(action),
+                Some(action) = self.action_rx.recv() => self.handle_action(action).await?,
             };
         }
         Ok(())
@@ -166,8 +172,8 @@ impl App {
         Ok(())
     }
 
-    #[instrument(skip(self))]
-    fn handle_action(&mut self, action: AppAction) {
+    #[instrument(skip(self), err)]
+    async fn handle_action(&mut self, action: AppAction) -> Result<()> {
         match action {
             AppAction::UpdateClockProgress { seconds_left } => {
                 self.clock_state.seconds_left = Some(seconds_left);
@@ -181,9 +187,27 @@ impl App {
                 self.clock_state.tasks = tasks;
                 self.clock_state.focused_task = focused_task_idx;
             }
-            AppAction::ClockTimerFinish => self.clock_state.seconds_left = None,
-            AppAction::ClockTimerPauseToggle(is_paused) => self.clock_state.is_paused = is_paused,
+            AppAction::ClockTimerFinish { task } => {
+                if let Some(task) = task {
+                    Notification::new()
+                    .summary("Task finished, go next?")
+                    .body(&format!(
+                        "Task: {} is finished, took {}. Go back to the app and press 'c' to start next task.",
+                        task.content,
+                        format_time(task.seconds)
+                    ))
+                    .appname("Crock")
+                    .icon("alarm-clock")
+                    .timeout(0)
+                    .show_async().await?;
+                }
+                self.clock_state.seconds_left = None
+            }
+            AppAction::ClockTimerPauseToggle { is_paused } => {
+                self.clock_state.is_paused = is_paused
+            }
         };
+        Ok(())
     }
 
     #[instrument(skip(self, frame))]
@@ -209,6 +233,8 @@ pub enum AppError {
     DrawFail,
     #[error("clock error: {0}")]
     ClockError(#[from] ClockError),
+    #[error("notification error: {0}")]
+    NotificationError(#[from] notify_rust::error::Error),
 }
 
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

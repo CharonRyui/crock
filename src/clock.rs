@@ -89,7 +89,7 @@ impl Clock {
                 .await?;
         }
 
-        let task_seconds = self.current_task().await.ok_or(ClockError::NoTask)?.seconds;
+        let current_task = self.current_task().await.ok_or(ClockError::NoTask)?;
 
         let on_tick = move |seconds_left| {
             let app_tx = app_tx.clone();
@@ -102,16 +102,17 @@ impl Clock {
 
         self.app_action_tx
             .send(AppAction::UpdateClockProgress {
-                seconds_left: task_seconds,
+                seconds_left: current_task.seconds,
             })
             .await?;
         self.app_action_tx
-            .send(AppAction::ClockTimerPauseToggle(false))
+            .send(AppAction::ClockTimerPauseToggle { is_paused: false })
             .await?;
         let timer = self.timer.clone();
-        timer.run(task_seconds, on_tick).await?;
+        timer.run(current_task.seconds, on_tick).await?;
 
         let mut task_id = self.current_task_idx.lock().await;
+
         let tasks = self.tasks.lock().await;
         *task_id = task_id.map(|id| (id + 1) % tasks.len());
         let mut focused_task_idx = self.focused_task_idx.lock().await;
@@ -123,7 +124,11 @@ impl Clock {
                 focused_task_idx: *focused_task_idx,
             })
             .await?;
-        self.app_action_tx.send(AppAction::ClockTimerFinish).await?;
+        self.app_action_tx
+            .send(AppAction::ClockTimerFinish {
+                task: Some(current_task),
+            })
+            .await?;
 
         Ok(())
     }
@@ -166,12 +171,12 @@ impl Clock {
         if self.timer.is_running().await {
             self.timer.pause_run().await;
             self.app_action_tx
-                .send(AppAction::ClockTimerPauseToggle(true))
+                .send(AppAction::ClockTimerPauseToggle { is_paused: true })
                 .await?;
         } else {
             self.timer.continue_run().await;
             self.app_action_tx
-                .send(AppAction::ClockTimerPauseToggle(true))
+                .send(AppAction::ClockTimerPauseToggle { is_paused: false })
                 .await?;
         }
         Ok(())
@@ -179,7 +184,9 @@ impl Clock {
 
     pub async fn kill_current_task(&self) -> Result<()> {
         self.timer.stop_run().await;
-        self.app_action_tx.send(AppAction::ClockTimerFinish).await?;
+        self.app_action_tx
+            .send(AppAction::ClockTimerFinish { task: None })
+            .await?;
         Ok(())
     }
 
@@ -212,7 +219,9 @@ impl Clock {
             if Some(focused_idx) == *current_task_idx {
                 *current_task_idx = None;
                 self.kill_current_task().await?;
-                self.app_action_tx.send(AppAction::ClockTimerFinish).await?;
+                self.app_action_tx
+                    .send(AppAction::ClockTimerFinish { task: None })
+                    .await?;
             }
             if focused_idx >= tasks.len() {
                 *focused_task_idx = Some(tasks.len().saturating_sub(1));
