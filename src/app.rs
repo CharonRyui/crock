@@ -70,7 +70,7 @@ impl Default for App {
     fn default() -> Self {
         let (action_tx, action_rx) = mpsc::channel(128);
         let preset_tasks = get_config_tasks().clone();
-        let (clock, clock_state) = Clock::new(action_tx.clone(), preset_tasks.clone());
+        let (clock, clock_state) = Clock::new(action_tx.clone());
         let (task_pane, task_pane_state) = TaskPane::new(action_tx, preset_tasks);
         Self {
             is_running: true,

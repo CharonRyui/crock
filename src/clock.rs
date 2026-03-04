@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
     symbols::border,
     text::Span,
-    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Gauge, Paragraph},
 };
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use tracing::instrument;
 use tui_big_text::{BigText, PixelSize};
 
@@ -22,15 +22,12 @@ use crate::{
 pub mod error;
 pub mod timer;
 
-type Result<T> = std::result::Result<T, error::ClockError>;
+type Result<T> = std::result::Result<T, ClockError>;
 
 #[derive(Debug, Default)]
 pub struct ClockState {
-    pub tasks: Vec<Task>,
-    pub current_running_task: Option<usize>,
     pub seconds_left: Option<f64>,
     pub is_paused: bool,
-    pub focused_task: Option<usize>,
     pub current_task: Option<Task>,
     pub next_task: Option<Task>,
 }
@@ -38,35 +35,21 @@ pub struct ClockState {
 #[derive(Debug)]
 pub struct Clock {
     timer: Arc<Timer>,
-    tasks: Mutex<Vec<Task>>,
-    current_task_idx: Mutex<Option<usize>>,
     app_action_tx: mpsc::Sender<AppAction>,
-    focused_task_idx: Mutex<Option<usize>>,
 }
 
 impl Clock {
-    pub fn new(app_action_tx: mpsc::Sender<AppAction>, tasks: Vec<Task>) -> (Self, ClockState) {
+    pub fn new(app_action_tx: mpsc::Sender<AppAction>) -> (Self, ClockState) {
         (
             Self {
                 timer: Arc::default(),
-                tasks: Mutex::new(tasks.clone()),
-                current_task_idx: Mutex::default(),
-                focused_task_idx: Mutex::default(),
                 app_action_tx,
             },
             ClockState {
-                tasks,
                 is_paused: true,
                 ..Default::default()
             },
         )
-    }
-
-    #[instrument(skip(self))]
-    pub async fn current_task(&self) -> Option<Task> {
-        let task_id = self.current_task_idx.lock().await;
-        let tasks = self.tasks.lock().await;
-        tasks.get((*task_id)?).cloned()
     }
 
     #[instrument(skip(self), err)]
@@ -115,113 +98,87 @@ impl Clock {
 
     #[instrument(skip(self, frame, area))]
     pub fn render_with_state(&self, frame: &mut Frame, area: Rect, state: &ClockState) {
-        let layout = Layout::default()
+        // 顶部 70% 用于显示当前倒计时和任务，底部 30% 用于显示“下一项”预览
+        let main_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
             .split(area);
 
-        if state.tasks.is_empty() {
-            let paragraph = Paragraph::new("Press 'a' to add item")
-                .block(Block::default().borders(Borders::BOTTOM));
-            frame.render_widget(paragraph, layout[0]);
-        } else if let Some(task_id) = state.current_running_task {
-            let gauge_layout = Layout::default()
+        // --- 1. 渲染当前任务 (Current Task Section) ---
+        if let Some(task) = &state.current_task {
+            let current_layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-                .split(layout[0]);
-            let task = &state.tasks[task_id];
+                .split(main_layout[0]);
+
+            // 任务名称（大字）
+            let task_name = BigText::builder()
+                .pixel_size(PixelSize::Full)
+                .style(Style::new().blue().bold())
+                .lines(vec![task.content.to_string().into()])
+                .centered()
+                .build();
+            frame.render_widget(task_name, current_layout[0]);
+
+            // 倒计时进度条
             if let Some(seconds_left) = state.seconds_left {
-                let ration = if task.seconds > 0.0 {
+                let ratio = if task.seconds > 0.0 {
                     (seconds_left / task.seconds).clamp(0.0, 1.0)
                 } else {
                     1.0
                 };
-                let label = Span::style(
-                    format!("{} left", format_time(seconds_left)).into(),
-                    Style::default(),
-                );
+
+                let color = if state.is_paused {
+                    Color::Red
+                } else {
+                    Color::Cyan
+                };
+                let label = format!("{} left", format_time(seconds_left));
+
                 let gauge = Gauge::default()
-                    .block(Block::default().borders(Borders::BOTTOM))
+                    .block(Block::default().borders(Borders::ALL).title(" Progress "))
                     .gauge_style(
                         Style::default()
-                            .fg(if state.is_paused {
-                                Color::Red
-                            } else {
-                                Color::Cyan
-                            })
+                            .fg(color)
                             .bg(Color::Black)
                             .add_modifier(Modifier::BOLD),
                     )
-                    .ratio(ration)
-                    .label(label);
-                let big_text = BigText::builder()
-                    .pixel_size(PixelSize::Full)
-                    .style(Style::new().blue())
-                    .lines(vec![task.content.blue().into()])
-                    .centered()
-                    .build();
-                frame.render_widget(big_text, gauge_layout[0]);
-                frame.render_widget(gauge, gauge_layout[1]);
-            } else {
-                let big_text_layout = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
-                    .split(layout[0]);
-                let content_text = BigText::builder()
-                    .pixel_size(PixelSize::Full)
-                    .style(Style::new().blue())
-                    .lines(vec![task.content.blue().into()])
-                    .centered()
-                    .build();
-                let time_text = BigText::builder()
-                    .pixel_size(PixelSize::Quadrant)
-                    .style(Style::new().cyan())
-                    .lines(vec![format_time(task.seconds).white().into()])
-                    .centered()
-                    .build();
-                frame.render_widget(content_text, big_text_layout[0]);
-                frame.render_widget(time_text, big_text_layout[1]);
+                    .ratio(ratio)
+                    .label(Span::styled(label, Style::default().fg(Color::White)));
+
+                frame.render_widget(gauge, current_layout[1]);
             }
         } else {
-            let paragraph = Paragraph::new("Press 'r' to start or 'c' to continue")
-                .block(Block::default().borders(Borders::BOTTOM));
-            frame.render_widget(paragraph, layout[0]);
+            // 无任务状态
+            let welcome = Paragraph::new("No active task.\nPress 's' to start or 'a' to add.")
+                .alignment(Alignment::Center)
+                .block(Block::bordered());
+            frame.render_widget(welcome, main_layout[0]);
         }
 
-        let items: Vec<_> = state
-            .tasks
-            .iter()
-            .enumerate()
-            .map(|(i, task)| {
-                let mut style = if Some(i) == state.focused_task {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::REVERSED)
-                } else {
-                    Style::default().fg(Color::Gray)
-                };
+        // --- 2. 渲染下一项任务 (Next Task Section) ---
+        let next_block = Block::bordered()
+            .title(" Next Up ")
+            .border_set(border::ROUNDED)
+            .border_style(Style::default().fg(Color::DarkGray));
 
-                if Some(i) == state.current_running_task {
-                    style = style.fg(Color::Cyan).add_modifier(Modifier::BOLD);
-                }
-                let content = format!(
-                    " [{}] {} ({})",
-                    i + 1,
-                    task.content,
-                    format_time(task.seconds)
-                );
-                ListItem::new(content).style(style)
-            })
-            .collect();
-
-        let list = List::new(items)
-            .block(
-                Block::bordered()
-                    .title("Task List")
-                    .border_set(border::ROUNDED),
-            )
-            .highlight_symbol(">> ");
-
-        frame.render_widget(list, layout[1]);
+        if let Some(next) = &state.next_task {
+            let next_text = format!(
+                "Coming up: {} ({})",
+                next.content,
+                format_time(next.seconds)
+            );
+            let paragraph = Paragraph::new(next_text)
+                .block(next_block)
+                .style(Style::default().fg(Color::Gray))
+                .alignment(Alignment::Center);
+            frame.render_widget(paragraph, main_layout[1]);
+        } else {
+            let paragraph = Paragraph::new("Queue is empty")
+                .block(next_block)
+                .style(Style::default().fg(Color::DarkGray))
+                .alignment(Alignment::Center);
+            frame.render_widget(paragraph, main_layout[1]);
+        }
     }
 }
