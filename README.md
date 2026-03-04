@@ -11,6 +11,20 @@ Crock is a modern, terminal-based Pomodoro and Task Management tool built with R
 - **System Notifications**: Get alerted when a task timer finishes.
 - **Modern UI**: Clean layout with rounded borders and intuitive color coding.
 
+## Config
+
+Config file is currently in `$HOME/.config/crock/config.toml`, you can preset tasks there. Here is an example:
+
+```toml
+[[tasks]]
+desc = "sit"
+time = "45min"
+
+[[tasks]]
+desc = "stand"
+time = "10min"
+```
+
 ## Installation
 
 ```bash

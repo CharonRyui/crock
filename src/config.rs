@@ -1,15 +1,16 @@
-use std::sync::OnceLock;
+use std::{env, path::PathBuf, sync::OnceLock};
 
 use serde::Deserialize;
+use tracing::{info, instrument};
 
 use crate::{tasks::Task, utils::parse_time};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct Config {
     pub tasks: Vec<ConfigTask>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct ConfigTask {
     pub desc: String,
     pub time: String,
@@ -27,15 +28,22 @@ impl From<&ConfigTask> for Task {
     }
 }
 
+#[instrument]
 pub fn get_config_tasks() -> &'static Vec<Task> {
     TASKS_IN_FILE.get_or_init(|| {
-        let config_tasks = &CONFIG
-            .get_or_init(|| {
-                let content = std::fs::read_to_string("config/config.toml")
-                    .expect("fail to read config file");
-                toml::from_str(&content).expect("invalid config file format")
-            })
-            .tasks;
-        config_tasks.iter().map(Task::from).collect()
+        if let Ok(home_path) = env::var("HOME") {
+            let mut path_buf: PathBuf = home_path.into();
+            path_buf.push(".config/crock/config.toml");
+            info!("reading config file in {}", path_buf.display());
+            let config_tasks = &CONFIG
+                .get_or_init(|| {
+                    let content = std::fs::read_to_string(&path_buf).unwrap_or_default();
+                    toml::from_str(&content).unwrap_or_default()
+                })
+                .tasks;
+            config_tasks.iter().map(Task::from).collect()
+        } else {
+            Vec::new()
+        }
     })
 }
